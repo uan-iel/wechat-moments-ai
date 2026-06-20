@@ -1,101 +1,136 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CheckCircle2, KeyRound, Loader2, Save, Settings2 } from "lucide-react";
+import { CheckCircle2, Eye, FileText, ImageIcon, KeyRound, Loader2, Mic, Save, Search } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-type AiModelSettings = {
-  provider: "openai" | "deepseek" | "custom";
+type Capability = "llm" | "embedding" | "vision" | "image" | "audio";
+
+type EndpointSettings = {
   baseUrl: string;
-  llmModel: string;
-  embeddingModel: string;
-  visionModel: string;
-  imageModel: string;
-  audioModel: string;
+  model: string;
   hasApiKey: boolean;
   maskedApiKey: string | null;
   apiKeySource: "database" | "env" | "missing";
 };
 
 type SettingsPayload = {
-  aiModelSettings: AiModelSettings;
+  aiModelSettings: Record<Capability, EndpointSettings>;
 };
 
-const defaults: Record<AiModelSettings["provider"], Partial<AiModelSettings>> = {
-  openai: {
-    baseUrl: "",
-    llmModel: "gpt-4o",
-    embeddingModel: "text-embedding-3-small",
-    visionModel: "gpt-4o",
-    imageModel: "gpt-image-1",
-    audioModel: "gpt-4o-mini-transcribe"
+type EndpointDraft = EndpointSettings & {
+  apiKey: string;
+};
+
+const capabilityMeta: Array<{
+  key: Capability;
+  title: string;
+  description: string;
+  icon: typeof FileText;
+  modelPlaceholder: string;
+  baseUrlPlaceholder: string;
+}> = [
+  {
+    key: "llm",
+    title: "文案语言模型",
+    description: "用于文案生成、内容形式分析和 AI 改写。DeepSeek 放这里就很合适。",
+    icon: FileText,
+    modelPlaceholder: "deepseek-chat / gpt-4o / qwen-plus",
+    baseUrlPlaceholder: "https://api.deepseek.com/v1"
   },
-  deepseek: {
-    baseUrl: "https://api.deepseek.com/v1",
-    llmModel: "deepseek-chat",
-    embeddingModel: "",
-    visionModel: "",
-    imageModel: "",
-    audioModel: ""
+  {
+    key: "embedding",
+    title: "向量检索模型",
+    description: "用于素材语义检索；留空时会自动使用本地关键词检索。",
+    icon: Search,
+    modelPlaceholder: "text-embedding-3-small",
+    baseUrlPlaceholder: "OpenAI 官方可留空"
   },
-  custom: {
-    baseUrl: "https://your-gateway.example.com/v1",
-    llmModel: "gpt-4o",
-    embeddingModel: "",
-    visionModel: "",
-    imageModel: "",
-    audioModel: ""
+  {
+    key: "vision",
+    title: "图片理解模型",
+    description: "用于识别产品图片特征，并把分析结果融入文案。",
+    icon: Eye,
+    modelPlaceholder: "qwen-vl-plus / gpt-4o",
+    baseUrlPlaceholder: "你的视觉模型 OpenAI-compatible Base URL"
+  },
+  {
+    key: "image",
+    title: "图片生成模型",
+    description: "预留能力。当前不会自动生图，只保存配置，方便后续扩展。",
+    icon: ImageIcon,
+    modelPlaceholder: "seedance / gpt-image-1",
+    baseUrlPlaceholder: "图片模型 Base URL"
+  },
+  {
+    key: "audio",
+    title: "音频模型",
+    description: "预留能力。后续可用于语音转文字或口播脚本处理。",
+    icon: Mic,
+    modelPlaceholder: "gpt-4o-mini-transcribe",
+    baseUrlPlaceholder: "音频模型 Base URL"
   }
-};
+];
 
-function emptySettings(): AiModelSettings {
+function emptyEndpoint(): EndpointDraft {
   return {
-    provider: "openai",
     baseUrl: "",
-    llmModel: "gpt-4o",
-    embeddingModel: "text-embedding-3-small",
-    visionModel: "gpt-4o",
-    imageModel: "gpt-image-1",
-    audioModel: "gpt-4o-mini-transcribe",
+    model: "",
     hasApiKey: false,
     maskedApiKey: null,
-    apiKeySource: "missing"
+    apiKeySource: "missing",
+    apiKey: ""
+  };
+}
+
+function emptyDrafts(): Record<Capability, EndpointDraft> {
+  return {
+    llm: emptyEndpoint(),
+    embedding: emptyEndpoint(),
+    vision: emptyEndpoint(),
+    image: emptyEndpoint(),
+    audio: emptyEndpoint()
   };
 }
 
 export function SettingsPanel() {
-  const [aiConfig, setAiConfig] = useState<AiModelSettings>(emptySettings);
-  const [apiKey, setApiKey] = useState("");
+  const [drafts, setDrafts] = useState<Record<Capability, EndpointDraft>>(emptyDrafts);
   const [busy, setBusy] = useState(false);
-  const [testing, setTesting] = useState(false);
+  const [testing, setTesting] = useState<Capability | null>(null);
   const [message, setMessage] = useState("");
 
   async function loadSettings() {
     const response = await fetch("/api/settings", { cache: "no-store" });
     const payload = (await response.json()) as { settings: SettingsPayload };
-    setAiConfig(payload.settings.aiModelSettings);
+    setDrafts((current) => {
+      const next = { ...current };
+
+      capabilityMeta.forEach(({ key }) => {
+        next[key] = {
+          ...payload.settings.aiModelSettings[key],
+          apiKey: ""
+        };
+      });
+
+      return next;
+    });
   }
 
   useEffect(() => {
     void loadSettings();
   }, []);
 
-  function updateConfig<K extends keyof AiModelSettings>(key: K, value: AiModelSettings[K]) {
-    setAiConfig((current) => ({
+  function updateEndpoint(capability: Capability, patch: Partial<EndpointDraft>) {
+    setDrafts((current) => ({
       ...current,
-      [key]: value
-    }));
-  }
-
-  function changeProvider(provider: AiModelSettings["provider"]) {
-    setAiConfig((current) => ({
-      ...current,
-      provider,
-      ...defaults[provider]
+      [capability]: {
+        ...current[capability],
+        ...patch
+      }
     }));
   }
 
@@ -103,17 +138,22 @@ export function SettingsPanel() {
     setBusy(true);
     setMessage("");
     try {
+      const aiModelConfig = Object.fromEntries(
+        capabilityMeta.map(({ key }) => [
+          key,
+          {
+            baseUrl: drafts[key].baseUrl,
+            model: drafts[key].model,
+            apiKey: drafts[key].apiKey
+          }
+        ])
+      );
       const response = await fetch("/api/settings", {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json"
         },
-        body: JSON.stringify({
-          aiModelConfig: {
-            ...aiConfig,
-            apiKey
-          }
-        })
+        body: JSON.stringify({ aiModelConfig })
       });
 
       if (!response.ok) {
@@ -121,8 +161,7 @@ export function SettingsPanel() {
         throw new Error(payload.error || "保存设置失败");
       }
 
-      setApiKey("");
-      setMessage("模型设置已保存。");
+      setMessage("模型能力配置已保存。");
       await loadSettings();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "保存设置失败");
@@ -131,8 +170,8 @@ export function SettingsPanel() {
     }
   }
 
-  async function testModel() {
-    setTesting(true);
+  async function testCapability(capability: Capability) {
+    setTesting(capability);
     setMessage("");
     try {
       const response = await fetch("/api/settings/test-ai", {
@@ -140,117 +179,117 @@ export function SettingsPanel() {
         headers: {
           "Content-Type": "application/json"
         },
-        body: JSON.stringify({ capability: "llm" })
+        body: JSON.stringify({ capability })
       });
-      const payload = (await response.json()) as { ok?: boolean; message?: string; error?: string };
+      const payload = (await response.json()) as { ok?: boolean; response?: string; error?: string };
 
       if (!response.ok || !payload.ok) {
-        throw new Error(payload.message || payload.error || "模型连通测试失败");
+        throw new Error(payload.error || "模型连通测试失败");
       }
 
-      setMessage(payload.message || "模型连通测试通过。");
+      setMessage(payload.response || "模型配置可用。");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "模型连通测试失败");
     } finally {
-      setTesting(false);
+      setTesting(null);
     }
   }
 
   return (
-    <div className="grid gap-6 xl:grid-cols-[1fr_22rem]">
+    <div className="space-y-6">
       <Card className="panel-card">
         <CardHeader>
-          <div className="flex size-11 items-center justify-center rounded-xl bg-primary/10 text-primary">
-            <Settings2 className="size-5" aria-hidden="true" />
-          </div>
-          <CardTitle>AI 模型配置</CardTitle>
-          <CardDescription>风格分析、素材检索和文案生成都会使用这里的配置。</CardDescription>
+          <CardTitle>按能力配置模型</CardTitle>
+          <CardDescription>
+            每种能力都可以使用不同厂商、Base URL、模型名称和 API Key。文案模型可以接 DeepSeek，图片理解可以接 Qwen-VL 或其他兼容接口。
+          </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-5">
-          <div className="grid gap-3 md:grid-cols-3">
-            {(["openai", "deepseek", "custom"] as const).map((provider) => (
-              <button
-                key={provider}
-                type="button"
-                onClick={() => changeProvider(provider)}
-                className={`rounded-xl border p-4 text-left text-sm ${
-                  aiConfig.provider === provider ? "border-primary bg-primary/5 ring-2 ring-primary/15" : "border-slate-200 bg-white"
-                }`}
-              >
-                <span className="font-semibold capitalize">{provider}</span>
-                <span className="mt-1 block text-xs text-muted-foreground">
-                  {provider === "openai" ? "官方 OpenAI" : provider === "deepseek" ? "DeepSeek 兼容接口" : "OpenAI 兼容网关"}
-                </span>
-              </button>
-            ))}
-          </div>
+        <CardContent className="grid gap-4 xl:grid-cols-2">
+          {capabilityMeta.map((item) => {
+            const Icon = item.icon;
+            const draft = drafts[item.key];
 
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="baseUrl">Base URL</Label>
-              <Input id="baseUrl" value={aiConfig.baseUrl} onChange={(event) => updateConfig("baseUrl", event.target.value)} placeholder="OpenAI 官方可留空" />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="llmModel">文案模型（必填）</Label>
-              <Input id="llmModel" value={aiConfig.llmModel} onChange={(event) => updateConfig("llmModel", event.target.value)} />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="embeddingModel">向量模型（可选）</Label>
-              <Input id="embeddingModel" value={aiConfig.embeddingModel} onChange={(event) => updateConfig("embeddingModel", event.target.value)} placeholder="留空则使用本地关键词检索" />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="visionModel">视觉模型（可选）</Label>
-              <Input id="visionModel" value={aiConfig.visionModel} onChange={(event) => updateConfig("visionModel", event.target.value)} placeholder="暂不使用可留空" />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="imageModel">图片模型（可选）</Label>
-              <Input id="imageModel" value={aiConfig.imageModel} onChange={(event) => updateConfig("imageModel", event.target.value)} placeholder="暂不使用可留空" />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="audioModel">语音模型（可选）</Label>
-              <Input id="audioModel" value={aiConfig.audioModel} onChange={(event) => updateConfig("audioModel", event.target.value)} placeholder="暂不使用可留空" />
-            </div>
-          </div>
+            return (
+              <div key={item.key} className="rounded-xl border border-slate-200 bg-white p-4">
+                <div className="mb-4 flex items-start gap-3">
+                  <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                    <Icon className="size-5" aria-hidden="true" />
+                  </span>
+                  <div>
+                    <h3 className="font-semibold text-slate-950">{item.title}</h3>
+                    <p className="mt-1 text-sm leading-6 text-muted-foreground">{item.description}</p>
+                  </div>
+                </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="apiKey">API Key</Label>
-            <Input
-              id="apiKey"
-              type="password"
-              value={apiKey}
-              onChange={(event) => setApiKey(event.target.value)}
-              placeholder={aiConfig.hasApiKey ? `已配置：${aiConfig.maskedApiKey}` : "sk-..."}
-            />
-          </div>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor={`${item.key}-baseUrl`}>Base URL</Label>
+                    <Input
+                      id={`${item.key}-baseUrl`}
+                      value={draft.baseUrl}
+                      onChange={(event) => updateEndpoint(item.key, { baseUrl: event.target.value })}
+                      placeholder={item.baseUrlPlaceholder}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor={`${item.key}-model`}>模型名称</Label>
+                    <Input
+                      id={`${item.key}-model`}
+                      value={draft.model}
+                      onChange={(event) => updateEndpoint(item.key, { model: event.target.value })}
+                      placeholder={item.modelPlaceholder}
+                    />
+                  </div>
+                </div>
 
-          {message ? <p className="rounded-lg bg-slate-50 p-3 text-sm text-muted-foreground">{message}</p> : null}
+                <div className="mt-3 space-y-2">
+                  <Label htmlFor={`${item.key}-apiKey`}>API Key</Label>
+                  <Input
+                    id={`${item.key}-apiKey`}
+                    type="password"
+                    value={draft.apiKey}
+                    onChange={(event) => updateEndpoint(item.key, { apiKey: event.target.value })}
+                    placeholder={draft.hasApiKey ? `已配置：${draft.maskedApiKey}` : "sk-..."}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    密钥来源：{draft.apiKeySource === "database" ? "页面保存" : draft.apiKeySource === "env" ? ".env" : "未配置"}
+                  </p>
+                </div>
 
-          <div className="flex flex-wrap gap-2">
-            <Button type="button" onClick={saveSettings} disabled={busy}>
-              {busy ? <Loader2 className="mr-2 size-4 animate-spin" aria-hidden="true" /> : <Save className="mr-2 size-4" aria-hidden="true" />}
-              保存设置
-            </Button>
-            <Button type="button" variant="outline" onClick={testModel} disabled={testing}>
-              {testing ? <Loader2 className="mr-2 size-4 animate-spin" aria-hidden="true" /> : <CheckCircle2 className="mr-2 size-4" aria-hidden="true" />}
-              测试文案模型
-            </Button>
-          </div>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => testCapability(item.key)}
+                    disabled={testing === item.key}
+                  >
+                    {testing === item.key ? (
+                      <Loader2 className="mr-2 size-4 animate-spin" aria-hidden="true" />
+                    ) : (
+                      <CheckCircle2 className="mr-2 size-4" aria-hidden="true" />
+                    )}
+                    测试
+                  </Button>
+                </div>
+              </div>
+            );
+          })}
         </CardContent>
       </Card>
 
-      <Card className="panel-card h-fit">
-        <CardHeader>
-          <div className="flex size-11 items-center justify-center rounded-xl bg-slate-950 text-white">
-            <KeyRound className="size-5" aria-hidden="true" />
-          </div>
-          <CardTitle>当前密钥状态</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3 text-sm leading-6 text-muted-foreground">
-          <p>Provider：{aiConfig.provider}</p>
-          <p>密钥来源：{aiConfig.apiKeySource === "database" ? "页面保存" : aiConfig.apiKeySource === "env" ? ".env" : "未配置"}</p>
-          <p>页面保存的新 API Key 会加密后写入本地数据库。</p>
-        </CardContent>
-      </Card>
+      {message ? <p className="rounded-lg bg-slate-50 p-3 text-sm text-muted-foreground">{message}</p> : null}
+
+      <div className="flex flex-wrap items-center gap-3">
+        <Button type="button" onClick={saveSettings} disabled={busy}>
+          {busy ? <Loader2 className="mr-2 size-4 animate-spin" aria-hidden="true" /> : <Save className="mr-2 size-4" aria-hidden="true" />}
+          保存全部模型配置
+        </Button>
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <KeyRound className="size-4" aria-hidden="true" />
+          API Key 会加密写入本地数据库。
+        </div>
+      </div>
     </div>
   );
 }

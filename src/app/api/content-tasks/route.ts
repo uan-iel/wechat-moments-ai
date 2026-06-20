@@ -15,7 +15,13 @@ export async function GET() {
       campaignGoal: true,
       status: true,
       updatedAt: true,
-      selectedStyle: {
+      contentFormat: {
+        select: {
+          id: true,
+          name: true
+        }
+      },
+      product: {
         select: {
           id: true,
           name: true

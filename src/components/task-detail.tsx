@@ -25,17 +25,25 @@ type TaskPayload = {
   title: string;
   campaignGoal: string;
   status: "DRAFT" | "FINALIZED" | "FAILED" | "draft" | "finalized" | "failed";
-  selectedStyle: {
+  contentFormat: {
     id: string;
     name: string;
-    analysisPrompt: string;
+    description: string | null;
+    writingGuide: string | null;
   } | null;
-  knowledgeItems: Array<{
+  product: {
+    id: string;
+    name: string;
+    description: string | null;
+    sellingPoints: string[];
+  } | null;
+  productAssets: Array<{
     id: string;
     type: string;
     title: string | null;
     content: string;
     imageUrl: string | null;
+    imageAnalysis: string | null;
     tags: string[];
   }>;
   versions: ContentVersion[];
@@ -243,7 +251,9 @@ export function TaskDetail({ taskId }: { taskId: string }) {
             {statusLabel[task.status]}
           </Badge>
           <CardTitle>{task.title}</CardTitle>
-          <CardDescription>风格：{task.selectedStyle?.name || "未选择"}</CardDescription>
+          <CardDescription>
+            内容形式：{task.contentFormat?.name || "未选择"} · 产品：{task.product?.name || "未选择"}
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           {task.versions.map((version) => (

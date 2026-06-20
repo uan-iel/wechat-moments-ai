@@ -7,44 +7,66 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model StyleProfile {
-  id             String        @id @default(cuid())
-  name           String
-  description    String?
-  analysisPrompt String
-  sourceText     String?
-  contentTasks   ContentTask[]
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
+model ContentFormat {
+  id           String        @id @default(cuid())
+  name         String
+  description  String?
+  writingGuide String?
+  products     Product[]
+  contentTasks ContentTask[]
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
 }
 
-model KnowledgeItem {
-  id        String            @id @default(cuid())
-  type      KnowledgeItemType
-  title     String?
-  content   String
-  imageUrl  String?
-  tags      String[]          @default([])
-  createdAt DateTime          @default(now())
-  updatedAt DateTime          @updatedAt
+model Product {
+  id              String         @id @default(cuid())
+  contentFormatId String
+  contentFormat   ContentFormat  @relation(fields: [contentFormatId], references: [id], onDelete: Cascade)
+  name            String
+  description     String?
+  sellingPoints   String[]       @default([])
+  assets          ProductAsset[]
+  contentTasks    ContentTask[]
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
 
+  @@index([contentFormatId])
+}
+
+model ProductAsset {
+  id            String           @id @default(cuid())
+  productId     String
+  product       Product          @relation(fields: [productId], references: [id], onDelete: Cascade)
+  type          ProductAssetType
+  title         String?
+  content       String?
+  imageUrl      String?
+  imageAnalysis String?
+  tags          String[]         @default([])
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  @@index([productId])
   @@index([type])
 }
 
 model ContentTask {
-  id                   String                 @id @default(cuid())
-  title                String
-  campaignGoal         String
-  selectedStyleId      String?
-  selectedStyle        StyleProfile?          @relation(fields: [selectedStyleId], references: [id], onDelete: SetNull)
-  selectedKnowledgeIds String[]               @default([])
-  status               ContentTaskStatus      @default(DRAFT)
-  versions             ContentVersion[]
-  calendarEntries      PublishCalendarEntry[]
-  createdAt            DateTime               @default(now())
-  updatedAt            DateTime               @updatedAt
+  id               String                 @id @default(cuid())
+  title            String
+  campaignGoal     String
+  contentFormatId  String?
+  contentFormat    ContentFormat?         @relation(fields: [contentFormatId], references: [id], onDelete: SetNull)
+  productId        String?
+  product          Product?               @relation(fields: [productId], references: [id], onDelete: SetNull)
+  selectedAssetIds String[]               @default([])
+  status           ContentTaskStatus      @default(DRAFT)
+  versions         ContentVersion[]
+  calendarEntries  PublishCalendarEntry[]
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
 
-  @@index([selectedStyleId])
+  @@index([contentFormatId])
+  @@index([productId])
   @@index([status])
 }
 
@@ -86,7 +108,7 @@ model AppSetting {
   updatedAt DateTime @updatedAt
 }
 
-enum KnowledgeItemType {
+enum ProductAssetType {
   TEXT  @map("text")
   IMAGE @map("image")
 }

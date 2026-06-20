@@ -21,31 +21,32 @@ const stateIcon = {
 };
 
 export async function ReadinessPanel() {
-  const [modelSettings, styleCount, knowledgeCount, draftCount, finalizedCount] = await Promise.all([
+  const [modelSettings, formatCount, productCount, assetCount, draftCount, finalizedCount] = await Promise.all([
     getAiModelSettingsForClient(),
-    prisma.styleProfile.count(),
-    prisma.knowledgeItem.count(),
+    prisma.contentFormat.count(),
+    prisma.product.count(),
+    prisma.productAsset.count(),
     prisma.contentTask.count({ where: { status: ContentTaskStatus.DRAFT } }),
     prisma.contentTask.count({ where: { status: ContentTaskStatus.FINALIZED } })
   ]);
-  const modelReady = Boolean(modelSettings.hasApiKey || process.env.OPENAI_API_KEY || process.env.DEEPSEEK_API_KEY);
+  const modelReady = Boolean(modelSettings.llm.hasApiKey || process.env.OPENAI_API_KEY || process.env.DEEPSEEK_API_KEY);
   const items = [
     {
       label: "模型配置",
       detail: modelReady
-        ? `${modelSettings.provider} / ${modelSettings.llmModel}`
+        ? `文案模型：${modelSettings.llm.model || "未命名"}`
         : "先在模型设置里配置 API Key",
       state: modelReady ? "ready" : "warning"
     },
     {
-      label: "风格 Profile",
-      detail: styleCount > 0 ? `${styleCount} 套可用风格` : "粘贴历史文案学习第一套风格",
-      state: styleCount > 0 ? "ready" : "todo"
+      label: "内容形式",
+      detail: formatCount > 0 ? `${formatCount} 个内容形式` : "先创建新品种草、复购提醒等内容形式",
+      state: formatCount > 0 ? "ready" : "todo"
     },
     {
-      label: "素材知识库",
-      detail: knowledgeCount > 0 ? `${knowledgeCount} 条素材` : "添加产品资料、卖点或图片链接",
-      state: knowledgeCount > 0 ? "ready" : "todo"
+      label: "产品与素材",
+      detail: productCount > 0 ? `${productCount} 个产品，${assetCount} 条素材` : "添加产品和产品下的图文素材",
+      state: productCount > 0 && assetCount > 0 ? "ready" : "todo"
     },
     {
       label: "文案任务",

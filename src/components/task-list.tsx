@@ -15,7 +15,11 @@ type Task = {
   campaignGoal: string;
   status: "DRAFT" | "FINALIZED" | "FAILED" | "draft" | "finalized" | "failed";
   updatedAt: string;
-  selectedStyle: {
+  contentFormat: {
+    id: string;
+    name: string;
+  } | null;
+  product: {
     id: string;
     name: string;
   } | null;
@@ -124,7 +128,7 @@ export function TaskList() {
                   </div>
                   <CardTitle>{task.title}</CardTitle>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    风格：{task.selectedStyle?.name || "未选择"} · 更新于 {new Date(task.updatedAt).toLocaleString("zh-CN")}
+                    内容形式：{task.contentFormat?.name || "未选择"} · 产品：{task.product?.name || "未选择"} · 更新于 {new Date(task.updatedAt).toLocaleString("zh-CN")}
                   </p>
                 </div>
                 <Link href={`/tasks/${task.id}`}>

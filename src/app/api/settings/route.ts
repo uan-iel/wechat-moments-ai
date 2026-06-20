@@ -1,22 +1,21 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { getAiModelSettingsForClient, saveAiModelConfig } from "@/lib/ai/model-config";
+import { AI_CAPABILITIES, saveAiModelConfig, getAiModelSettingsForClient } from "@/lib/ai/model-config";
 
 export const dynamic = "force-dynamic";
 
+const endpointSchema = z.object({
+  baseUrl: z.string().default(""),
+  model: z.string().default(""),
+  apiKey: z.string().optional()
+});
+
 const settingsSchema = z.object({
   aiModelConfig: z
-    .object({
-      provider: z.enum(["openai", "deepseek", "custom"]),
-      baseUrl: z.string().default(""),
-      llmModel: z.string().min(1),
-      embeddingModel: z.string().default(""),
-      visionModel: z.string().default(""),
-      imageModel: z.string().default(""),
-      audioModel: z.string().default(""),
-      apiKey: z.string().optional()
-    })
+    .object(
+      Object.fromEntries(AI_CAPABILITIES.map((capability) => [capability, endpointSchema.optional()]))
+    )
     .optional()
 });
 

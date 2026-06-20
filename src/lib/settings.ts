@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 
 export const SETTINGS_KEYS = {
   aiModelConfig: "ai.modelConfig",
+  aiModelEndpoints: "ai.modelEndpoints",
   aiApiKey: "ai.apiKey"
 } as const;
 

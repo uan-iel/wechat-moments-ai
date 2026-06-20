@@ -5,33 +5,41 @@ import { MemoryVectorStore } from "langchain/vectorstores/memory";
 
 import { createChatModel, createEmbeddingModel, getAiModelConfig } from "@/lib/ai/model-config";
 
-export type KnowledgeForGeneration = {
+export type ProductAssetForGeneration = {
   id: string;
-  type: string;
+  type: "TEXT" | "IMAGE" | "text" | "image";
   title?: string | null;
-  content: string;
+  content?: string | null;
   imageUrl?: string | null;
+  imageAnalysis?: string | null;
   tags: string[];
 };
 
-export type RetrievedKnowledge = KnowledgeForGeneration & {
+export type RetrievedProductAsset = ProductAssetForGeneration & {
   score?: number;
 };
 
 const contentPrompt = ChatPromptTemplate.fromMessages([
   [
     "system",
-    "你是一个专业的私域营销文案写手，擅长为朋友圈生成自然、有转化力、不过度营销的内容。"
+    "你是一个专业的私域朋友圈文案写手。你要根据内容形式、产品资料、已选图文素材和图片特征分析，输出自然、有转化力、不过度营销的朋友圈正文。"
   ],
   [
     "human",
-    "请严格遵循以下风格：\n{styleDescription}\n\n基于以下产品信息：\n{knowledgeContent}\n\n为“{campaignGoal}”撰写一条吸引人的朋友圈文案。\n要求：\n1. 文案适合朋友圈发布，口吻自然可信。\n2. 明确传达卖点，但不要像硬广。\n3. 可适度使用 emoji，但必须符合给定风格。\n4. 包含一个温和的行动引导。\n5. 输出正文即可，不要解释创作过程。"
+    "内容形式：\n{formatGuide}\n\n产品信息：\n{productInfo}\n\n已选素材与图片特征：\n{assetContent}\n\n文案目标：{campaignGoal}\n\n要求：\n1. 文案适合朋友圈手动发布，语气自然可信。\n2. 必须结合产品卖点和图片特征，不要凭空编造未提供的信息。\n3. 如果图片分析里有外观、材质、场景、质感等特征，要把精华自然融入文案。\n4. 可适度使用 emoji，但不要堆砌。\n5. 包含一个温和的行动引导。\n6. 只输出正文，不解释创作过程。"
   ]
 ]);
 
-function knowledgeToDocument(item: KnowledgeForGeneration) {
+function assetToDocument(item: ProductAssetForGeneration) {
   return new Document({
-    pageContent: `素材标题：${item.title || "未命名"}\n素材类型：${item.type}\n标签：${item.tags.join(", ") || "无"}\n图片：${item.imageUrl || "无"}\n内容：${item.content}`,
+    pageContent: [
+      `素材标题：${item.title || "未命名"}`,
+      `素材类型：${String(item.type).toUpperCase() === "IMAGE" ? "图片" : "文本"}`,
+      `标签：${item.tags.join(", ") || "无"}`,
+      `图片：${item.imageUrl || "无"}`,
+      `图片分析：${item.imageAnalysis || "无"}`,
+      `内容：${item.content || "无"}`
+    ].join("\n"),
     metadata: {
       id: item.id,
       type: item.type,
@@ -42,22 +50,20 @@ function knowledgeToDocument(item: KnowledgeForGeneration) {
 
 function tokenize(value: string) {
   const normalized = value.toLowerCase();
-  const asciiTokens = normalized.match(/[a-z0-9]+/g) ?? [];
-  const cjkTokens = normalized.match(/[\u4e00-\u9fa5]+/g) ?? [];
+  const asciiTokens: string[] = normalized.match(/[a-z0-9]+/g) ?? [];
+  const cjkTokens: string[] = normalized.match(/[\u4e00-\u9fa5]+/g) ?? [];
   const cjkChars = cjkTokens.join("").split("");
 
-  return [...asciiTokens, ...cjkTokens, ...cjkChars]
-    .map((token) => token.trim())
-    .filter((token) => token.length >= 1);
+  return asciiTokens.concat(cjkTokens, cjkChars).map((token) => token.trim()).filter(Boolean);
 }
 
-function scoreKnowledge(campaignGoal: string, item: KnowledgeForGeneration) {
+function scoreAsset(campaignGoal: string, item: ProductAssetForGeneration) {
   const goalTokens = tokenize(campaignGoal);
-  const itemText = [item.title, item.content, item.tags.join(" "), item.imageUrl].filter(Boolean).join(" ");
+  const itemText = [item.title, item.content, item.imageAnalysis, item.tags.join(" "), item.imageUrl]
+    .filter(Boolean)
+    .join(" ");
   const itemLower = itemText.toLowerCase();
-  const tokenScore = goalTokens.reduce((score, token) => {
-    return score + (itemLower.includes(token) ? 2 : 0);
-  }, 0);
+  const tokenScore = goalTokens.reduce((score, token) => score + (itemLower.includes(token) ? 2 : 0), 0);
   const directScore = itemLower.includes(campaignGoal.toLowerCase()) ? 5 : 0;
 
   return tokenScore + directScore;
@@ -65,55 +71,56 @@ function scoreKnowledge(campaignGoal: string, item: KnowledgeForGeneration) {
 
 function keywordRetrieve(input: {
   campaignGoal: string;
-  knowledgeItems: KnowledgeForGeneration[];
+  assets: ProductAssetForGeneration[];
   limit: number;
 }) {
-  return input.knowledgeItems
+  return input.assets
     .map((item, index) => ({
       ...item,
-      score: scoreKnowledge(input.campaignGoal, item) - index / 1000
+      score: scoreAsset(input.campaignGoal, item) - index / 1000
     }))
     .sort((left, right) => (right.score ?? 0) - (left.score ?? 0))
     .slice(0, input.limit);
 }
 
-export async function retrieveRelevantKnowledge(input: {
+export async function retrieveRelevantAssets(input: {
   campaignGoal: string;
-  knowledgeItems: KnowledgeForGeneration[];
+  assets: ProductAssetForGeneration[];
   limit?: number;
 }) {
-  const limit = input.limit ?? 3;
+  const limit = input.limit ?? 8;
 
-  if (input.knowledgeItems.length <= limit) {
-    return input.knowledgeItems;
+  if (input.assets.length <= limit) {
+    return input.assets;
   }
 
   const config = await getAiModelConfig();
 
-  if (!config.embeddingModel) {
+  if (!config.embedding.model) {
     return keywordRetrieve({
       campaignGoal: input.campaignGoal,
-      knowledgeItems: input.knowledgeItems,
+      assets: input.assets,
       limit
     });
   }
 
   const vectorStore = await MemoryVectorStore.fromDocuments(
-    input.knowledgeItems.map(knowledgeToDocument),
+    input.assets.map(assetToDocument),
     await createEmbeddingModel()
   );
   const results = await vectorStore.similaritySearchWithScore(input.campaignGoal, limit);
 
   return results.map(([document, score]) => {
-    const source = input.knowledgeItems.find((item) => item.id === document.metadata.id);
+    const source = input.assets.find((item) => item.id === document.metadata.id);
 
     return {
       ...(source ?? {
         id: String(document.metadata.id),
-        type: String(document.metadata.type),
+        type: String(document.metadata.type) as ProductAssetForGeneration["type"],
         title: null,
         tags: Array.isArray(document.metadata.tags) ? document.metadata.tags : [],
         imageUrl: null,
+        imageAnalysis: null,
         content: document.pageContent
       }),
       score
@@ -123,29 +130,39 @@ export async function retrieveRelevantKnowledge(input: {
 
 export async function generateMomentContent(input: {
   campaignGoal: string;
-  styleDescription: string;
-  knowledgeItems: KnowledgeForGeneration[];
+  formatGuide: string;
+  productInfo: string;
+  assets: ProductAssetForGeneration[];
 }) {
-  const relevantKnowledge = await retrieveRelevantKnowledge({
+  const relevantAssets = await retrieveRelevantAssets({
     campaignGoal: input.campaignGoal,
-    knowledgeItems: input.knowledgeItems,
-    limit: 3
+    assets: input.assets,
+    limit: 8
   });
-  const knowledgeContent = relevantKnowledge
+  const assetContent = relevantAssets
     .map((item, index) => {
-      return `素材${index + 1}\n标题：${item.title || "未命名"}\n类型：${item.type}\n标签：${item.tags.join(", ") || "无"}\n图片：${item.imageUrl || "无"}\n内容：${item.content}`;
+      return [
+        `素材${index + 1}`,
+        `标题：${item.title || "未命名"}`,
+        `类型：${String(item.type).toUpperCase() === "IMAGE" ? "图片" : "文本"}`,
+        `标签：${item.tags.join(", ") || "无"}`,
+        `图片：${item.imageUrl || "无"}`,
+        `图片分析：${item.imageAnalysis || "无"}`,
+        `内容：${item.content || "无"}`
+      ].join("\n");
     })
     .join("\n\n---\n\n");
   const model = await createChatModel({ temperature: 0.75 });
   const chain = contentPrompt.pipe(model).pipe(new StringOutputParser());
   const generatedContent = await chain.invoke({
     campaignGoal: input.campaignGoal,
-    styleDescription: input.styleDescription,
-    knowledgeContent
+    formatGuide: input.formatGuide,
+    productInfo: input.productInfo,
+    assetContent
   });
 
   return {
     generatedContent,
-    relevantKnowledge
+    relevantAssets
   };
 }

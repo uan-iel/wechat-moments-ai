@@ -39,11 +39,23 @@ export async function POST(request: Request) {
     const settings = await getAiModelSettingsForClient();
     const capability = parsed.data.capability;
 
-    if (!settings.hasApiKey) {
+    const endpoint = settings[capability];
+
+    if (!endpoint.hasApiKey) {
       return NextResponse.json(
         {
           ok: false,
-          error: "请先配置模型 API Key。"
+          error: `请先配置${capabilityLabels[capability]} API Key。`
+        },
+        { status: 400 }
+      );
+    }
+
+    if (!endpoint.model) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: `请先配置${capabilityLabels[capability]}模型名称。`
         },
         { status: 400 }
       );
@@ -52,15 +64,14 @@ export async function POST(request: Request) {
     if (capability === "llm") {
       const model = await createChatModel({
         temperature: 0,
-        model: settings.llmModel
+        model: endpoint.model
       });
       const response = await model.invoke("请只回复 OK，用于测试模型连通性。");
 
       return NextResponse.json({
         ok: true,
         capability,
-        provider: settings.provider,
-        model: settings.llmModel,
+        model: endpoint.model,
         response: typeof response.content === "string" ? response.content : "OK"
       });
     }
@@ -72,35 +83,15 @@ export async function POST(request: Request) {
       return NextResponse.json({
         ok: true,
         capability,
-        provider: settings.provider,
-        model: settings.embeddingModel,
+        model: endpoint.model,
         response: `向量维度 ${vector.length}`
       });
-    }
-
-    const modelByCapability = {
-      vision: settings.visionModel,
-      image: settings.imageModel,
-      audio: settings.audioModel
-    } as const;
-    const model = modelByCapability[capability];
-
-    if (!model) {
-      return NextResponse.json(
-        {
-          ok: false,
-          capability,
-          error: `请先配置${capabilityLabels[capability]}模型。`
-        },
-        { status: 400 }
-      );
     }
 
     return NextResponse.json({
       ok: true,
       capability,
-      provider: settings.provider,
-      model,
+      model: endpoint.model,
       response: `${capabilityLabels[capability]}配置已就绪。此项未发起真实素材调用。`
     });
   } catch (error) {

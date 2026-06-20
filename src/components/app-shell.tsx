@@ -19,7 +19,7 @@ import { cn } from "@/lib/utils";
 const navItems = [
   { href: "/", label: "总览", icon: Home },
   { href: "/content-factory", label: "内容工厂", icon: Factory },
-  { href: "/styles", label: "风格管理", icon: MessageSquareText },
+  { href: "/formats", label: "知识库", icon: MessageSquareText },
   { href: "/tasks", label: "文案任务", icon: CheckSquare },
   { href: "/calendar", label: "发布日历", icon: CalendarDays },
   { href: "/settings", label: "模型设置", icon: Settings }
@@ -90,7 +90,7 @@ export function AppShell({
               <Sparkles className="size-4" aria-hidden="true" />
               本地文案闭环
             </div>
-            风格学习、素材检索、多版本改写和手工发布记录都在本地完成。
+            内容形式、产品素材、图片分析和多版本改写都在本地完成。
           </div>
         </aside>
 

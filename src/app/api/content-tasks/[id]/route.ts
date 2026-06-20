@@ -26,16 +26,26 @@ export async function GET(_request: Request, { params }: RouteContext) {
       id: true,
       title: true,
       campaignGoal: true,
-      selectedStyleId: true,
-      selectedKnowledgeIds: true,
+      contentFormatId: true,
+      productId: true,
+      selectedAssetIds: true,
       status: true,
       createdAt: true,
       updatedAt: true,
-      selectedStyle: {
+      contentFormat: {
         select: {
           id: true,
           name: true,
-          analysisPrompt: true
+          description: true,
+          writingGuide: true
+        }
+      },
+      product: {
+        select: {
+          id: true,
+          name: true,
+          description: true,
+          sellingPoints: true
         }
       },
       versions: {
@@ -55,10 +65,10 @@ export async function GET(_request: Request, { params }: RouteContext) {
     return NextResponse.json({ error: "Content task not found" }, { status: 404 });
   }
 
-  const knowledgeItems = await prisma.knowledgeItem.findMany({
+  const productAssets = await prisma.productAsset.findMany({
     where: {
       id: {
-        in: contentTask.selectedKnowledgeIds
+        in: contentTask.selectedAssetIds
       }
     },
     select: {
@@ -67,6 +77,7 @@ export async function GET(_request: Request, { params }: RouteContext) {
       title: true,
       content: true,
       imageUrl: true,
+      imageAnalysis: true,
       tags: true
     }
   });
@@ -74,7 +85,7 @@ export async function GET(_request: Request, { params }: RouteContext) {
   return NextResponse.json({
     contentTask: {
       ...contentTask,
-      knowledgeItems
+      productAssets
     }
   });
 }

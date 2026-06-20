@@ -3,153 +3,263 @@ import { ChatOpenAI, OpenAIEmbeddings } from "@langchain/openai";
 import { decryptText, encryptText, maskSecret } from "@/lib/crypto";
 import { getAppSetting, hasAppSetting, SETTINGS_KEYS, setAppSetting } from "@/lib/settings";
 
-export const AI_PROVIDERS = ["openai", "deepseek", "custom"] as const;
+export const AI_CAPABILITIES = ["llm", "embedding", "vision", "image", "audio"] as const;
 
-export type AiProvider = (typeof AI_PROVIDERS)[number];
+export type AiCapability = (typeof AI_CAPABILITIES)[number];
 
-export type AiModelConfig = {
-  provider: AiProvider;
-  baseUrl: string;
-  llmModel: string;
-  embeddingModel: string;
-  visionModel: string;
-  imageModel: string;
-  audioModel: string;
+export type AiModelEndpointInput = {
+  baseUrl?: string;
+  model?: string;
+  apiKey?: string;
 };
 
-export type AiModelSettings = AiModelConfig & {
+export type AiModelEndpoint = {
+  baseUrl: string;
+  model: string;
+  encryptedApiKey?: string;
+};
+
+export type AiModelEndpointForClient = {
+  baseUrl: string;
+  model: string;
   hasApiKey: boolean;
   maskedApiKey: string | null;
   apiKeySource: "database" | "env" | "missing";
 };
 
-export const DEFAULT_AI_MODEL_CONFIG: AiModelConfig = {
-  provider: "openai",
-  baseUrl: "",
-  llmModel: "gpt-4o",
-  embeddingModel: "text-embedding-3-small",
-  visionModel: "gpt-4o",
-  imageModel: "gpt-image-1",
-  audioModel: "gpt-4o-mini-transcribe"
+export type AiModelEndpoints = Record<AiCapability, AiModelEndpoint>;
+
+export type AiModelSettings = Record<AiCapability, AiModelEndpointForClient>;
+
+const DEFAULT_ENDPOINTS: AiModelEndpoints = {
+  llm: {
+    baseUrl: "",
+    model: "gpt-4o"
+  },
+  embedding: {
+    baseUrl: "",
+    model: "text-embedding-3-small"
+  },
+  vision: {
+    baseUrl: "",
+    model: "gpt-4o"
+  },
+  image: {
+    baseUrl: "",
+    model: ""
+  },
+  audio: {
+    baseUrl: "",
+    model: ""
+  }
 };
 
-function normalizeProvider(value: unknown): AiProvider {
-  return AI_PROVIDERS.includes(value as AiProvider) ? (value as AiProvider) : "openai";
-}
+type LegacyProvider = "openai" | "deepseek" | "custom";
 
-function cleanString(value: unknown, fallback: string) {
-  return typeof value === "string" && value.trim() ? value.trim() : fallback;
-}
+type LegacyAiModelConfig = {
+  provider?: LegacyProvider;
+  baseUrl?: string;
+  llmModel?: string;
+  embeddingModel?: string;
+  visionModel?: string;
+  imageModel?: string;
+  audioModel?: string;
+};
 
 function cleanOptionalString(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
 
-function providerDefaultBaseUrl(provider: AiProvider) {
-  if (provider === "deepseek") {
-    return "https://api.deepseek.com/v1";
+function cleanString(value: unknown, fallback: string) {
+  const cleaned = cleanOptionalString(value);
+
+  return cleaned || fallback;
+}
+
+function capabilityEnvKey(capability: AiCapability) {
+  const upper = capability.toUpperCase();
+  const direct = process.env[`AI_${upper}_API_KEY`];
+
+  if (direct) {
+    return direct;
+  }
+
+  if (capability === "llm") {
+    return process.env.DEEPSEEK_API_KEY || process.env.OPENAI_API_KEY || "";
+  }
+
+  if (capability === "embedding" || capability === "vision" || capability === "image" || capability === "audio") {
+    return process.env.OPENAI_API_KEY || "";
   }
 
   return "";
 }
 
-function envApiKey(provider: AiProvider) {
-  if (provider === "deepseek") {
-    return process.env.DEEPSEEK_API_KEY || process.env.OPENAI_API_KEY || "";
-  }
+function capabilityEnvBaseUrl(capability: AiCapability) {
+  const upper = capability.toUpperCase();
 
-  return process.env.OPENAI_API_KEY || "";
+  return process.env[`AI_${upper}_BASE_URL`] || "";
 }
 
-function parseStoredConfig(value: string | null) {
+function capabilityEnvModel(capability: AiCapability) {
+  const upper = capability.toUpperCase();
+
+  if (process.env[`AI_${upper}_MODEL`]) {
+    return process.env[`AI_${upper}_MODEL`] || "";
+  }
+
+  if (capability === "llm") {
+    return process.env.OPENAI_MODEL || DEFAULT_ENDPOINTS.llm.model;
+  }
+
+  if (capability === "embedding") {
+    return process.env.OPENAI_EMBEDDING_MODEL || DEFAULT_ENDPOINTS.embedding.model;
+  }
+
+  return DEFAULT_ENDPOINTS[capability].model;
+}
+
+function parseEndpoint(value: unknown, capability: AiCapability): AiModelEndpoint {
+  const source = typeof value === "object" && value ? (value as Partial<AiModelEndpoint>) : {};
+
+  return {
+    baseUrl: cleanString(source.baseUrl, capabilityEnvBaseUrl(capability) || DEFAULT_ENDPOINTS[capability].baseUrl),
+    model: cleanString(source.model, capabilityEnvModel(capability)),
+    encryptedApiKey: cleanOptionalString(source.encryptedApiKey) || undefined
+  };
+}
+
+function parseStoredEndpoints(value: string | null): AiModelEndpoints {
   if (!value) {
-    return DEFAULT_AI_MODEL_CONFIG;
+    return DEFAULT_ENDPOINTS;
   }
 
   try {
-    const parsed = JSON.parse(value) as Partial<AiModelConfig>;
-    const provider = normalizeProvider(parsed.provider);
-    return {
-      provider,
-      baseUrl: cleanString(parsed.baseUrl, providerDefaultBaseUrl(provider)),
-      llmModel: cleanString(parsed.llmModel, process.env.OPENAI_MODEL || DEFAULT_AI_MODEL_CONFIG.llmModel),
-      embeddingModel: cleanOptionalString(parsed.embeddingModel),
-      visionModel: cleanOptionalString(parsed.visionModel),
-      imageModel: cleanOptionalString(parsed.imageModel),
-      audioModel: cleanOptionalString(parsed.audioModel)
-    } satisfies AiModelConfig;
+    const parsed = JSON.parse(value) as Partial<Record<AiCapability, Partial<AiModelEndpoint>>>;
+
+    return AI_CAPABILITIES.reduce((acc, capability) => {
+      acc[capability] = parseEndpoint(parsed[capability], capability);
+      return acc;
+    }, {} as AiModelEndpoints);
   } catch {
-    return DEFAULT_AI_MODEL_CONFIG;
+    return DEFAULT_ENDPOINTS;
   }
 }
 
-export async function getAiModelConfig() {
-  const storedConfig = await getAppSetting(SETTINGS_KEYS.aiModelConfig);
-  const parsed = parseStoredConfig(storedConfig);
+function legacyProviderBaseUrl(provider: LegacyProvider | undefined) {
+  return provider === "deepseek" ? "https://api.deepseek.com/v1" : "";
+}
 
-  return {
-    ...parsed,
-    baseUrl: parsed.baseUrl || providerDefaultBaseUrl(parsed.provider),
-    llmModel: parsed.llmModel || process.env.OPENAI_MODEL || DEFAULT_AI_MODEL_CONFIG.llmModel,
-    embeddingModel: parsed.embeddingModel || process.env.OPENAI_EMBEDDING_MODEL || ""
-  };
+async function legacyEndpoints(): Promise<AiModelEndpoints | null> {
+  const storedConfig = await getAppSetting(SETTINGS_KEYS.aiModelConfig);
+
+  if (!storedConfig) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(storedConfig) as LegacyAiModelConfig;
+    const encryptedApiKey = (await getAppSetting(SETTINGS_KEYS.aiApiKey)) || undefined;
+    const baseUrl = cleanString(parsed.baseUrl, legacyProviderBaseUrl(parsed.provider));
+
+    return {
+      llm: {
+        baseUrl,
+        model: cleanString(parsed.llmModel, DEFAULT_ENDPOINTS.llm.model),
+        encryptedApiKey
+      },
+      embedding: {
+        baseUrl,
+        model: cleanOptionalString(parsed.embeddingModel),
+        encryptedApiKey
+      },
+      vision: {
+        baseUrl,
+        model: cleanOptionalString(parsed.visionModel),
+        encryptedApiKey
+      },
+      image: {
+        baseUrl,
+        model: cleanOptionalString(parsed.imageModel),
+        encryptedApiKey
+      },
+      audio: {
+        baseUrl,
+        model: cleanOptionalString(parsed.audioModel),
+        encryptedApiKey
+      }
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function getAiModelConfig(): Promise<AiModelEndpoints> {
+  const storedEndpoints = await getAppSetting(SETTINGS_KEYS.aiModelEndpoints);
+
+  if (storedEndpoints) {
+    return parseStoredEndpoints(storedEndpoints);
+  }
+
+  return (await legacyEndpoints()) ?? DEFAULT_ENDPOINTS;
 }
 
 export async function getAiModelSettingsForClient(): Promise<AiModelSettings> {
-  const config = await getAiModelConfig();
-  const storedKey = await getAppSetting(SETTINGS_KEYS.aiApiKey);
-  const fallbackKey = envApiKey(config.provider);
+  const endpoints = await getAiModelConfig();
 
-  return {
-    ...config,
-    hasApiKey: Boolean(storedKey || fallbackKey),
-    maskedApiKey: storedKey
-      ? "已保存"
-      : fallbackKey
-        ? maskSecret(fallbackKey)
-        : null,
-    apiKeySource: storedKey ? "database" : fallbackKey ? "env" : "missing"
-  };
+  return AI_CAPABILITIES.reduce((acc, capability) => {
+    const endpoint = endpoints[capability];
+    const fallbackKey = capabilityEnvKey(capability);
+    const hasStoredKey = Boolean(endpoint.encryptedApiKey);
+
+    acc[capability] = {
+      baseUrl: endpoint.baseUrl,
+      model: endpoint.model,
+      hasApiKey: Boolean(hasStoredKey || fallbackKey),
+      maskedApiKey: hasStoredKey ? "已保存" : fallbackKey ? maskSecret(fallbackKey) : null,
+      apiKeySource: hasStoredKey ? "database" : fallbackKey ? "env" : "missing"
+    };
+
+    return acc;
+  }, {} as AiModelSettings);
 }
 
-export async function saveAiModelConfig(input: Partial<AiModelConfig> & { apiKey?: string }) {
+export async function saveAiModelConfig(input: Partial<Record<AiCapability, AiModelEndpointInput>>) {
   const current = await getAiModelConfig();
-  const provider = normalizeProvider(input.provider ?? current.provider);
-  const next: AiModelConfig = {
-    provider,
-    baseUrl: cleanString(input.baseUrl, providerDefaultBaseUrl(provider)),
-    llmModel: cleanString(input.llmModel, current.llmModel),
-    embeddingModel: cleanOptionalString(input.embeddingModel),
-    visionModel: cleanOptionalString(input.visionModel),
-    imageModel: cleanOptionalString(input.imageModel),
-    audioModel: cleanOptionalString(input.audioModel)
-  };
+  const next = { ...current };
 
-  await setAppSetting(SETTINGS_KEYS.aiModelConfig, JSON.stringify(next));
+  await Promise.all(
+    AI_CAPABILITIES.map(async (capability) => {
+      const incoming = input[capability];
 
-  if (typeof input.apiKey === "string" && input.apiKey.trim()) {
-    await setAppSetting(SETTINGS_KEYS.aiApiKey, encryptText(input.apiKey.trim()));
-  }
+      if (!incoming) {
+        return;
+      }
+
+      next[capability] = {
+        baseUrl: cleanOptionalString(incoming.baseUrl),
+        model: cleanOptionalString(incoming.model),
+        encryptedApiKey:
+          typeof incoming.apiKey === "string" && incoming.apiKey.trim()
+            ? encryptText(incoming.apiKey.trim())
+            : current[capability].encryptedApiKey
+      };
+    })
+  );
+
+  await setAppSetting(SETTINGS_KEYS.aiModelEndpoints, JSON.stringify(next));
 
   return getAiModelSettingsForClient();
 }
 
-async function getRuntimeApiKey(provider: AiProvider) {
-  const encryptedKey = await getAppSetting(SETTINGS_KEYS.aiApiKey);
-
-  if (encryptedKey) {
-    return decryptText(encryptedKey);
-  }
-
-  return envApiKey(provider);
-}
-
-export async function getAiRuntimeConfig() {
-  const config = await getAiModelConfig();
-  const apiKey = await getRuntimeApiKey(config.provider);
+async function getRuntimeEndpoint(capability: AiCapability) {
+  const endpoints = await getAiModelConfig();
+  const endpoint = endpoints[capability];
+  const encryptedKey = endpoint.encryptedApiKey;
+  const apiKey = encryptedKey ? decryptText(encryptedKey) : capabilityEnvKey(capability);
 
   return {
-    ...config,
+    ...endpoint,
     apiKey
   };
 }
@@ -162,32 +272,42 @@ function openAiConfiguration(baseUrl: string) {
     : undefined;
 }
 
-export async function createChatModel(options?: { temperature?: number; model?: string }) {
-  const config = await getAiRuntimeConfig();
+export async function createChatModel(options?: {
+  capability?: Extract<AiCapability, "llm" | "vision">;
+  temperature?: number;
+  model?: string;
+}) {
+  const endpoint = await getRuntimeEndpoint(options?.capability ?? "llm");
+  const model = options?.model || endpoint.model;
+
+  if (!model) {
+    throw new Error("请先配置对应能力的模型名称。");
+  }
 
   return new ChatOpenAI({
-    model: options?.model || config.llmModel,
+    model,
     temperature: options?.temperature ?? 0.7,
-    apiKey: config.apiKey || undefined,
-    configuration: openAiConfiguration(config.baseUrl)
+    apiKey: endpoint.apiKey || undefined,
+    configuration: openAiConfiguration(endpoint.baseUrl)
   });
 }
 
 export async function createEmbeddingModel() {
-  const config = await getAiRuntimeConfig();
+  const endpoint = await getRuntimeEndpoint("embedding");
 
-  if (!config.embeddingModel) {
+  if (!endpoint.model) {
     throw new Error("未配置向量模型。");
   }
 
   return new OpenAIEmbeddings({
-    model: config.embeddingModel,
-    apiKey: config.apiKey || undefined,
-    configuration: openAiConfiguration(config.baseUrl)
+    model: endpoint.model,
+    apiKey: endpoint.apiKey || undefined,
+    configuration: openAiConfiguration(endpoint.baseUrl)
   });
 }
 
 export async function isAiApiKeyConfigured() {
-  const config = await getAiModelConfig();
-  return (await hasAppSetting(SETTINGS_KEYS.aiApiKey)) || Boolean(envApiKey(config.provider));
+  const settings = await getAiModelSettingsForClient();
+
+  return (await hasAppSetting(SETTINGS_KEYS.aiModelEndpoints)) || settings.llm.hasApiKey;
 }

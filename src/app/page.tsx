@@ -7,16 +7,16 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 const shortcuts = [
   {
-    href: "/styles",
+    href: "/formats",
     icon: MessageSquareText,
-    title: "学习我的文案风格",
-    description: "粘贴历史朋友圈文案，沉淀可复用的风格 Profile。"
+    title: "搭建内容知识库",
+    description: "按内容形式、产品和图文素材组织知识库。"
   },
   {
     href: "/content-factory",
     icon: Factory,
     title: "生成朋友圈文案",
-    description: "选择素材和风格，一键生成适合手工发布的草稿。"
+    description: "选择产品和图片素材，一键生成适合手工发布的草稿。"
   },
   {
     href: "/tasks",
@@ -38,7 +38,7 @@ export default function Home() {
   return (
     <AppShell
       title="本地 AI 朋友圈文案工作台"
-      description="去掉企微连接与自动发布，只保留更稳、更轻的文案生产：风格学习、素材管理、AI 生成、多版本定稿和手工发布记录。"
+      description="去掉企微连接与自动发布，保留内容形式、产品素材、图片分析、AI 生成、多版本定稿和手工发布记录。"
       maxWidth="7xl"
       actions={
         <Link

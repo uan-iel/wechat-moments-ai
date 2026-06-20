@@ -1,19 +1,29 @@
-import { ContentTaskStatus, KnowledgeItemType } from "@prisma/client";
+import { ContentTaskStatus, ProductAssetType } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
+import { analyzeProductImage } from "@/lib/ai/image-analyzer";
 import { generateMomentContent } from "@/lib/ai/content-generator";
 import { prisma } from "@/lib/prisma";
 
 const generateContentSchema = z.object({
   contentTaskId: z.string().min(1).optional(),
   campaignGoal: z.string().min(1),
-  selectedStyleId: z.string().min(1),
-  selectedKnowledgeIds: z.array(z.string().min(1)).min(1)
+  contentFormatId: z.string().min(1),
+  productId: z.string().min(1),
+  selectedAssetIds: z.array(z.string().min(1)).min(1)
 });
 
-function formatKnowledgeType(type: KnowledgeItemType) {
-  return type === KnowledgeItemType.IMAGE ? "图片" : "文本";
+function formatProductInfo(product: {
+  name: string;
+  description: string | null;
+  sellingPoints: string[];
+}) {
+  return [
+    `产品名称：${product.name}`,
+    `产品说明：${product.description || "无"}`,
+    `核心卖点：${product.sellingPoints.join("、") || "无"}`
+  ].join("\n");
 }
 
 export async function POST(request: Request) {
@@ -25,59 +35,76 @@ export async function POST(request: Request) {
   }
 
   try {
-    const styleProfile = await prisma.styleProfile.findUnique({
+    const product = await prisma.product.findFirst({
       where: {
-        id: parsed.data.selectedStyleId
+        id: parsed.data.productId,
+        contentFormatId: parsed.data.contentFormatId
       },
-      select: {
-        id: true,
-        analysisPrompt: true
-      }
-    });
-
-    if (!styleProfile) {
-      return NextResponse.json({ error: "Style profile not found" }, { status: 404 });
-    }
-
-    const knowledgeItems = await prisma.knowledgeItem.findMany({
-      where: {
-        id: {
-          in: parsed.data.selectedKnowledgeIds
+      include: {
+        contentFormat: true,
+        assets: {
+          where: {
+            id: {
+              in: parsed.data.selectedAssetIds
+            }
+          }
         }
-      },
-      select: {
-        id: true,
-        type: true,
-        title: true,
-        content: true,
-        imageUrl: true,
-        tags: true
       }
     });
 
-    if (knowledgeItems.length === 0) {
-      return NextResponse.json(
-        { error: "No knowledge items found for content generation" },
-        { status: 422 }
-      );
+    if (!product) {
+      return NextResponse.json({ error: "Product not found" }, { status: 404 });
     }
 
-    const { generatedContent, relevantKnowledge } = await generateMomentContent({
+    if (product.assets.length === 0) {
+      return NextResponse.json({ error: "No selected product assets found" }, { status: 422 });
+    }
+
+    const assets = await Promise.all(
+      product.assets.map(async (asset) => {
+        if (asset.type !== ProductAssetType.IMAGE || !asset.imageUrl || asset.imageAnalysis) {
+          return asset;
+        }
+
+        const imageAnalysis = await analyzeProductImage({
+          imageUrl: asset.imageUrl,
+          productName: product.name,
+          contentFormatName: product.contentFormat.name,
+          hint: asset.content
+        });
+
+        return prisma.productAsset.update({
+          where: {
+            id: asset.id
+          },
+          data: {
+            imageAnalysis
+          }
+        });
+      })
+    );
+    const { generatedContent, relevantAssets } = await generateMomentContent({
       campaignGoal: parsed.data.campaignGoal,
-      styleDescription: styleProfile.analysisPrompt,
-      knowledgeItems: knowledgeItems.map((item) => ({
-        id: item.id,
-        type: formatKnowledgeType(item.type),
-        title: item.title,
-        content: item.content,
-        imageUrl: item.imageUrl,
-        tags: item.tags
+      formatGuide: [
+        `名称：${product.contentFormat.name}`,
+        `说明：${product.contentFormat.description || "无"}`,
+        `写作要求：${product.contentFormat.writingGuide || "无"}`
+      ].join("\n"),
+      productInfo: formatProductInfo(product),
+      assets: assets.map((asset) => ({
+        id: asset.id,
+        type: asset.type,
+        title: asset.title,
+        content: asset.content,
+        imageUrl: asset.imageUrl,
+        imageAnalysis: asset.imageAnalysis,
+        tags: asset.tags
       }))
     });
-    const imageUrls = relevantKnowledge
-      .map((item) => item.imageUrl)
+    const imageUrls = relevantAssets
+      .map((asset) => asset.imageUrl)
       .filter((url): url is string => Boolean(url));
-
+    const selectedAssetIds = relevantAssets.map((asset) => asset.id);
     const contentTask = await prisma.contentTask.upsert({
       where: {
         id: parsed.data.contentTaskId ?? "__new_task__"
@@ -85,15 +112,17 @@ export async function POST(request: Request) {
       update: {
         title: parsed.data.campaignGoal,
         campaignGoal: parsed.data.campaignGoal,
-        selectedStyleId: parsed.data.selectedStyleId,
-        selectedKnowledgeIds: relevantKnowledge.map((item) => item.id),
+        contentFormatId: product.contentFormatId,
+        productId: product.id,
+        selectedAssetIds,
         status: ContentTaskStatus.DRAFT
       },
       create: {
         title: parsed.data.campaignGoal,
         campaignGoal: parsed.data.campaignGoal,
-        selectedStyleId: parsed.data.selectedStyleId,
-        selectedKnowledgeIds: relevantKnowledge.map((item) => item.id),
+        contentFormatId: product.contentFormatId,
+        productId: product.id,
+        selectedAssetIds,
         status: ContentTaskStatus.DRAFT
       }
     });
@@ -115,7 +144,7 @@ export async function POST(request: Request) {
       contentTask,
       contentVersion,
       generatedContent,
-      retrievedKnowledgeItems: relevantKnowledge
+      retrievedAssets: relevantAssets
     });
   } catch (error) {
     return NextResponse.json(
