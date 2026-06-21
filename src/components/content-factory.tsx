@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ImageIcon, Loader2, Sparkles } from "lucide-react";
+import { CheckSquare, ImageIcon, Loader2, Sparkles, Square } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -74,8 +74,8 @@ export function ContentFactory() {
   }, []);
 
   useEffect(() => {
-    setSelectedAssetIds([]);
-  }, [selectedProductId]);
+    setSelectedAssetIds(selectedProduct?.assets.map((asset) => asset.id) ?? []);
+  }, [selectedProduct]);
 
   function toggleAsset(id: string) {
     setSelectedAssetIds((current) =>
@@ -84,13 +84,22 @@ export function ContentFactory() {
   }
 
   async function generateContent() {
-    if (!campaignGoal.trim() || !selectedFormatId || !selectedProductId || selectedAssetIds.length === 0) {
-      setMessage("请填写文案目标，并选择内容形式、产品和至少一条素材。");
+    if (!campaignGoal.trim() || !selectedFormatId || !selectedProductId) {
+      setMessage("请填写文案目标，并选择内容形式和产品。");
       return;
     }
 
+    if (!selectedProduct?.assets.length) {
+      setMessage("这个产品还没有素材，先去知识库添加文本或图片素材。");
+      return;
+    }
+
+    const assetIdsForGeneration = selectedAssetIds.length
+      ? selectedAssetIds
+      : selectedProduct.assets.map((asset) => asset.id);
+
     setBusy(true);
-    setMessage("正在生成。如果选择了未分析的图片，系统会先识别图片特征。");
+    setMessage("正在生成。如果有未分析的图片，系统会先识别图片特征。");
     try {
       const response = await fetch("/api/generate-content", {
         method: "POST",
@@ -101,7 +110,7 @@ export function ContentFactory() {
           campaignGoal,
           contentFormatId: selectedFormatId,
           productId: selectedProductId,
-          selectedAssetIds
+          selectedAssetIds: assetIdsForGeneration
         })
       });
 
@@ -117,6 +126,14 @@ export function ContentFactory() {
     } finally {
       setBusy(false);
     }
+  }
+
+  function selectAllAssets() {
+    setSelectedAssetIds(selectedProduct?.assets.map((asset) => asset.id) ?? []);
+  }
+
+  function clearSelectedAssets() {
+    setSelectedAssetIds([]);
   }
 
   return (
@@ -200,7 +217,26 @@ export function ContentFactory() {
             </div>
 
             <div className="space-y-3">
-              <Label>选择图文素材</Label>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <Label>选择图文素材</Label>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    默认使用当前产品的全部素材；也可以手动取消不需要的素材。
+                  </p>
+                </div>
+                {selectedProduct?.assets.length ? (
+                  <div className="flex gap-2">
+                    <Button type="button" variant="outline" size="sm" onClick={selectAllAssets}>
+                      <CheckSquare className="mr-2 size-4" aria-hidden="true" />
+                      全选
+                    </Button>
+                    <Button type="button" variant="outline" size="sm" onClick={clearSelectedAssets}>
+                      <Square className="mr-2 size-4" aria-hidden="true" />
+                      清空
+                    </Button>
+                  </div>
+                ) : null}
+              </div>
               <div className="grid gap-3 md:grid-cols-2">
                 {selectedProduct?.assets.map((asset) => {
                   const selected = selectedAssetIds.includes(asset.id);
@@ -247,9 +283,9 @@ export function ContentFactory() {
             </div>
 
             {message ? <p className="rounded-lg bg-slate-50 p-3 text-sm text-muted-foreground">{message}</p> : null}
-            <Button type="button" onClick={generateContent} disabled={busy} className="w-full">
+            <Button type="button" onClick={generateContent} disabled={busy || !selectedProduct?.assets.length} className="w-full">
               {busy ? <Loader2 className="mr-2 size-4 animate-spin" aria-hidden="true" /> : <Sparkles className="mr-2 size-4" aria-hidden="true" />}
-              生成并创建任务
+              {selectedProduct?.assets.length ? "生成并创建任务" : "请先添加素材"}
             </Button>
           </CardContent>
         </Card>

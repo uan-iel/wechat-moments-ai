@@ -348,22 +348,36 @@ export function SettingsPanel() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor={`${item.key}-model`}>模型</Label>
+                    <Label htmlFor={`${item.key}-model-select`}>可选模型</Label>
                     <select
-                      id={`${item.key}-model`}
+                      id={`${item.key}-model-select`}
                       className="h-10 w-full rounded-lg border border-input bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
-                      value={draft.model}
-                      onChange={(event) => updateEndpoint(item.key, { model: event.target.value })}
+                      value={options.includes(draft.model) ? draft.model : ""}
+                      onChange={(event) => {
+                        if (event.target.value) {
+                          updateEndpoint(item.key, { model: event.target.value });
+                        }
+                      }}
                     >
-                      <option value="">{options.length ? "请选择模型" : "先获取模型列表"}</option>
+                      <option value="">{options.length ? "从列表选择，或下方手填" : "先获取模型，或下方手填"}</option>
                       {options.map((model) => (
                         <option key={model} value={model}>
                           {model}
                         </option>
                       ))}
                     </select>
-                    <p className="text-xs text-muted-foreground">从 Base URL 返回的模型列表中选择。</p>
+                    <p className="text-xs text-muted-foreground">供应商可能隐藏部分模型；没有出现在列表时可手动填写。</p>
                   </div>
+                </div>
+
+                <div className="mt-3 space-y-2">
+                  <Label htmlFor={`${item.key}-model`}>模型名称</Label>
+                  <Input
+                    id={`${item.key}-model`}
+                    value={draft.model}
+                    onChange={(event) => updateEndpoint(item.key, { model: event.target.value })}
+                    placeholder={item.modelPlaceholder}
+                  />
                 </div>
 
                 <div className="mt-3 space-y-2">

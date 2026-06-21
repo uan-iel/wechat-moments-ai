@@ -11,7 +11,7 @@ const generateContentSchema = z.object({
   campaignGoal: z.string().min(1),
   contentFormatId: z.string().min(1),
   productId: z.string().min(1),
-  selectedAssetIds: z.array(z.string().min(1)).min(1)
+  selectedAssetIds: z.array(z.string().min(1)).optional()
 });
 
 function formatProductInfo(product: {
@@ -42,13 +42,15 @@ export async function POST(request: Request) {
       },
       include: {
         contentFormat: true,
-        assets: {
-          where: {
-            id: {
-              in: parsed.data.selectedAssetIds
+        assets: parsed.data.selectedAssetIds?.length
+          ? {
+              where: {
+                id: {
+                  in: parsed.data.selectedAssetIds
+                }
+              }
             }
-          }
-        }
+          : true
       }
     });
 
@@ -57,7 +59,7 @@ export async function POST(request: Request) {
     }
 
     if (product.assets.length === 0) {
-      return NextResponse.json({ error: "No selected product assets found" }, { status: 422 });
+      return NextResponse.json({ error: "这个产品还没有可用于生成的素材，请先到知识库添加文本或图片素材。" }, { status: 422 });
     }
 
     const assets = await Promise.all(
