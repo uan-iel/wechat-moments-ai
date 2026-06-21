@@ -38,7 +38,7 @@ const contentPrompt = ChatPromptTemplate.fromMessages([
   ],
   [
     "human",
-    "内容形式：\n{formatGuide}\n\n产品信息：\n{productInfo}\n\n已选素材与图片特征：\n{assetContent}\n\n文案目标：{campaignGoal}\n\n要求：\n1. 文案适合朋友圈手动发布，语气自然可信。\n2. 必须结合产品卖点和图片特征，不要凭空编造未提供的信息。\n3. 如果图片分析里有外观、材质、场景、质感等特征，要把精华自然融入文案。\n4. 可适度使用 emoji，但不要堆砌。\n5. 包含一个温和的行动引导。\n6. 只输出正文，不解释创作过程。"
+    "内容形式：\n{formatGuide}\n\n产品信息：\n{productInfo}\n\n已选素材与图片特征：\n{assetContent}\n\n文案目标：{campaignGoal}\n\n生成控制：\n- 字数区间：{wordCountRange} 字\n- 风格标签：{styleInstruction}\n\n要求：\n1. 文案适合朋友圈手动发布，语气自然可信。\n2. 必须结合产品卖点和图片特征，不要凭空编造未提供的信息。\n3. 如果图片分析里有外观、材质、场景、质感等特征，要把精华自然融入文案。\n4. 必须严格对标风格标签；多个标签同时存在时要融合，而不是分段解释。\n5. 字数必须落在指定区间内，不要明显超出或低于范围。\n6. 可适度使用 emoji，但不要堆砌。\n7. 包含一个温和的行动引导。\n8. 只输出正文，不解释创作过程。"
   ]
 ]);
 
@@ -295,10 +295,31 @@ function extractDistinctSignals(item: ProductAssetForGeneration) {
   ].join("\n");
 }
 
+function buildStyleInstruction(styleTags: string[]) {
+  const normalizedTags = Array.from(new Set(styleTags.map((tag) => tag.trim()).filter(Boolean)));
+
+  if (normalizedTags.length === 0) {
+    return "自然、清晰、不过度营销";
+  }
+
+  const styleGuide: Record<string, string> = {
+    "活泼": "语气更有生命力，节奏轻快，可以有轻微俏皮感，但不要吵闹",
+    "简约": "表达克制、句子干净、信息密度高，减少铺垫和形容词",
+    "网感": "贴近日常社交平台语感，可以有自然口语和轻微梗感，但不要生硬追热点",
+    "温柔": "语气柔和、有陪伴感，强调细腻感受和情绪安放"
+  };
+
+  return normalizedTags
+    .map((tag) => `${tag}：${styleGuide[tag] || `请理解为一种“${tag}”取向，并落实到语气、节奏、词汇和画面感中`}`)
+    .join("\n");
+}
+
 export async function generateMomentContent(input: {
   campaignGoal: string;
   formatGuide: string;
   productInfo: string;
+  wordCountRange?: string;
+  styleTags?: string[];
   assets: ProductAssetForGeneration[];
 }) {
   const relevantAssets = await retrieveRelevantAssets({
@@ -315,7 +336,9 @@ export async function generateMomentContent(input: {
     campaignGoal: input.campaignGoal,
     formatGuide: input.formatGuide,
     productInfo: input.productInfo,
-    assetContent
+    assetContent,
+    wordCountRange: input.wordCountRange || "150-250",
+    styleInstruction: buildStyleInstruction(input.styleTags ?? [])
   });
 
   return {

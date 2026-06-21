@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { CheckSquare, ImageIcon, Loader2, Sparkles, Square } from "lucide-react";
+import { CheckSquare, ImageIcon, Loader2, Plus, Sparkles, Square, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -37,6 +37,9 @@ type ContentFormat = {
   products: Product[];
 };
 
+const wordCountOptions = ["50-150", "150-250", "250-350", "350-450"] as const;
+const defaultStyleTags = ["活泼", "简约", "网感", "温柔"];
+
 export function ContentFactory() {
   const router = useRouter();
   const [formats, setFormats] = useState<ContentFormat[]>([]);
@@ -44,6 +47,10 @@ export function ContentFactory() {
   const [selectedProductId, setSelectedProductId] = useState("");
   const [selectedAssetIds, setSelectedAssetIds] = useState<string[]>([]);
   const [campaignGoal, setCampaignGoal] = useState("");
+  const [wordCountRange, setWordCountRange] = useState<(typeof wordCountOptions)[number]>("150-250");
+  const [availableStyleTags, setAvailableStyleTags] = useState(defaultStyleTags);
+  const [selectedStyleTags, setSelectedStyleTags] = useState<string[]>(["简约"]);
+  const [customStyleTag, setCustomStyleTag] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
 
@@ -83,6 +90,24 @@ export function ContentFactory() {
     );
   }
 
+  function toggleStyleTag(tag: string) {
+    setSelectedStyleTags((current) =>
+      current.includes(tag) ? current.filter((item) => item !== tag) : current.concat(tag)
+    );
+  }
+
+  function addCustomStyleTag() {
+    const nextTag = customStyleTag.trim();
+
+    if (!nextTag) {
+      return;
+    }
+
+    setAvailableStyleTags((current) => (current.includes(nextTag) ? current : current.concat(nextTag)));
+    setSelectedStyleTags((current) => (current.includes(nextTag) ? current : current.concat(nextTag)));
+    setCustomStyleTag("");
+  }
+
   async function generateContent() {
     if (!campaignGoal.trim() || !selectedFormatId || !selectedProductId) {
       setMessage("请填写文案目标，并选择内容形式和产品。");
@@ -110,7 +135,9 @@ export function ContentFactory() {
           campaignGoal,
           contentFormatId: selectedFormatId,
           productId: selectedProductId,
-          selectedAssetIds: assetIdsForGeneration
+          selectedAssetIds: assetIdsForGeneration,
+          wordCountRange,
+          styleTags: selectedStyleTags
         })
       });
 
@@ -214,6 +241,72 @@ export function ContentFactory() {
                 onChange={(event) => setCampaignGoal(event.target.value)}
                 placeholder="如：推广新品A，强调质感和首发福利"
               />
+            </div>
+
+            <div className="grid gap-4 rounded-xl border border-slate-200 bg-slate-50/70 p-4 lg:grid-cols-[18rem_1fr]">
+              <div className="space-y-3">
+                <Label>生成字数</Label>
+                <div className="grid grid-cols-2 gap-2">
+                  {wordCountOptions.map((option) => (
+                    <button
+                      key={option}
+                      type="button"
+                      onClick={() => setWordCountRange(option)}
+                      className={cn(
+                        "rounded-lg border px-3 py-2 text-sm font-medium transition",
+                        wordCountRange === option
+                          ? "border-primary bg-primary text-primary-foreground"
+                          : "border-slate-200 bg-white text-slate-700 hover:border-primary/40"
+                      )}
+                    >
+                      {option}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <Label>风格标签</Label>
+                <div className="flex flex-wrap gap-2">
+                  {availableStyleTags.map((tag) => {
+                    const selected = selectedStyleTags.includes(tag);
+
+                    return (
+                      <button
+                        key={tag}
+                        type="button"
+                        onClick={() => toggleStyleTag(tag)}
+                        className={cn(
+                          "inline-flex items-center rounded-full border px-3 py-1.5 text-sm font-medium transition",
+                          selected
+                            ? "border-primary bg-primary text-primary-foreground"
+                            : "border-slate-200 bg-white text-slate-700 hover:border-primary/40"
+                        )}
+                      >
+                        {tag}
+                        {selected ? <X className="ml-1.5 size-3" aria-hidden="true" /> : null}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="flex gap-2">
+                  <Input
+                    value={customStyleTag}
+                    onChange={(event) => setCustomStyleTag(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        addCustomStyleTag();
+                      }
+                    }}
+                    placeholder="添加自定义标签，如高级感、克制、种草"
+                  />
+                  <Button type="button" variant="outline" onClick={addCustomStyleTag}>
+                    <Plus className="mr-2 size-4" aria-hidden="true" />
+                    添加
+                  </Button>
+                </div>
+              </div>
             </div>
 
             <div className="space-y-3">
