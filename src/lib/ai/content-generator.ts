@@ -19,10 +19,22 @@ export type RetrievedProductAsset = ProductAssetForGeneration & {
   score?: number;
 };
 
+type RankedProductAsset = RetrievedProductAsset & {
+  rankScore?: number;
+  tokens?: Set<string>;
+  signals?: ReturnType<typeof candidateSignals>;
+};
+
 const contentPrompt = ChatPromptTemplate.fromMessages([
   [
     "system",
-    "你是一个专业的私域朋友圈文案写手。你要根据内容形式、产品资料、已选图文素材和图片特征分析，输出自然、有转化力、不过度营销的朋友圈正文。"
+    [
+      "你是一个专业的私域朋友圈原创文案写手。",
+      "你的首要目标不是改写历史素材，而是基于检索到的信号生成全新表达。",
+      "铁律：检索素材只允许提取产品参数、使用场景和用户情绪这三类信息；必须使用与素材完全不同的句式结构和比喻方式来重写；严禁拼接、复述、仿写或套用原句。",
+      "如果检索素材出现明显相似表达，你必须主动换角度、换结构、换节奏。",
+      "输出必须像一个真正原创的新朋友圈文案，而不是旧素材的整理版。"
+    ].join("\n")
   ],
   [
     "human",
@@ -83,34 +95,169 @@ function keywordRetrieve(input: {
     .slice(0, input.limit);
 }
 
+function normalizedType(type: ProductAssetForGeneration["type"]) {
+  return String(type).toUpperCase() === "IMAGE" ? "IMAGE" : "TEXT";
+}
+
+function similarityTokens(item: ProductAssetForGeneration) {
+  return new Set(
+    tokenize([item.title, item.content, item.imageAnalysis, item.tags.join(" "), item.imageUrl].filter(Boolean).join(" "))
+      .filter((token) => token.length > 1)
+  );
+}
+
+function jaccardSimilarity(left: Set<string>, right: Set<string>) {
+  if (left.size === 0 || right.size === 0) {
+    return 0;
+  }
+
+  let intersection = 0;
+  for (const token of Array.from(left)) {
+    if (right.has(token)) {
+      intersection += 1;
+    }
+  }
+
+  const union = left.size + right.size - intersection;
+  return union > 0 ? intersection / union : 0;
+}
+
+function candidateSignals(item: ProductAssetForGeneration) {
+  const text = [item.title, item.content, item.imageAnalysis, item.tags.join(" "), item.imageUrl].filter(Boolean).join(" ");
+  const parameterKeywords = ["参数", "规格", "尺寸", "容量", "重量", "材质", "颜色", "版本", "功能", "卖点", "价格", "套餐", "工艺", "口味", "香型"];
+  const sceneKeywords = ["聚会", "送礼", "办公", "通勤", "旅行", "露营", "家庭", "生日", "节日", "周末", "客户", "朋友", "孩子", "桌游", "家居", "开学", "婚礼", "社群", "朋友圈"];
+  const emotionKeywords = ["轻松", "安心", "省心", "有面子", "高级", "治愈", "温暖", "惊喜", "热闹", "松弛", "快乐", "仪式感", "走心", "陪伴", "共鸣", "体面", "质感", "氛围"];
+
+  const matched = [...parameterKeywords, ...sceneKeywords, ...emotionKeywords].filter((keyword) => text.includes(keyword));
+
+  return {
+    parameters: parameterKeywords.filter((keyword) => text.includes(keyword)),
+    scenes: sceneKeywords.filter((keyword) => text.includes(keyword)),
+    emotions: emotionKeywords.filter((keyword) => text.includes(keyword)),
+    keywords: Array.from(new Set([...matched, ...item.tags.filter(Boolean)]))
+  };
+}
+
+function pruneNearDuplicates(candidates: RankedProductAsset[]) {
+  const kept: RankedProductAsset[] = [];
+
+  for (const candidate of candidates) {
+    const candidateTokens = similarityTokens(candidate);
+    const isDuplicate = kept.some((existing) => {
+      const existingTokens = similarityTokens(existing);
+      const similarity = jaccardSimilarity(candidateTokens, existingTokens);
+      const sameType = normalizedType(candidate.type) === normalizedType(existing.type);
+      const sameTags =
+        candidate.tags.length > 0 &&
+        existing.tags.length > 0 &&
+        candidate.tags.some((tag) => existing.tags.includes(tag));
+
+      return similarity >= 0.78 && sameType && sameTags;
+    });
+
+    if (!isDuplicate) {
+      kept.push(candidate);
+    }
+  }
+
+  return kept;
+}
+
+function selectDiverseAssets(candidates: RetrievedProductAsset[], limit: number) {
+  const ranked = (candidates.map((item, index) => ({
+    ...item,
+    rankScore: typeof item.score === "number" ? item.score : candidates.length - index,
+    tokens: similarityTokens(item),
+    signals: candidateSignals(item)
+  })) as RankedProductAsset[]).sort((left, right) => (right.rankScore ?? 0) - (left.rankScore ?? 0));
+  const deduped = pruneNearDuplicates(ranked);
+  const selected: typeof ranked = [];
+  const remaining = [...deduped];
+
+  while (selected.length < limit && remaining.length > 0) {
+    let bestIndex = 0;
+    let bestScore = Number.NEGATIVE_INFINITY;
+
+    remaining.forEach((candidate, index) => {
+      const relevance = (candidate.rankScore ?? 0) / Math.max(1, ranked.length);
+      const similarityPenalty = selected.length
+        ? Math.max(...selected.map((picked) => jaccardSimilarity(candidate.tokens ?? new Set(), picked.tokens ?? new Set())))
+        : 0;
+      const typePenalty = selected.some((picked) => normalizedType(picked.type) === normalizedType(candidate.type)) ? 0.08 : 0;
+      const tagOverlapPenalty = selected.some((picked) =>
+        candidate.tags.some((tag) => picked.tags.includes(tag))
+      )
+        ? 0.05
+        : 0;
+      const noveltySignals = new Set([
+        ...(candidate.signals?.parameters ?? []),
+        ...(candidate.signals?.scenes ?? []),
+        ...(candidate.signals?.emotions ?? [])
+      ]);
+      const seenSignals = new Set(
+        selected.flatMap((picked) => [
+          ...(picked.signals?.parameters ?? []),
+          ...(picked.signals?.scenes ?? []),
+          ...(picked.signals?.emotions ?? [])
+        ])
+      );
+      let freshSignalCount = 0;
+      for (const signal of Array.from(noveltySignals)) {
+        if (!seenSignals.has(signal)) {
+          freshSignalCount += 1;
+        }
+      }
+
+      const noveltyBoost = Math.min(0.12, freshSignalCount * 0.03);
+      const score = relevance + noveltyBoost - similarityPenalty * 0.72 - typePenalty - tagOverlapPenalty;
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestIndex = index;
+      }
+    });
+
+    const [chosen] = remaining.splice(bestIndex, 1);
+    selected.push(chosen);
+  }
+
+  return selected.map(({ tokens, signals, rankScore, ...item }) => item);
+}
+
 export async function retrieveRelevantAssets(input: {
   campaignGoal: string;
   assets: ProductAssetForGeneration[];
   limit?: number;
 }) {
-  const limit = input.limit ?? 8;
+  const limit = input.limit ?? 6;
+  const candidateLimit = Math.min(input.assets.length, Math.max(limit * 4, limit + 4));
 
   if (input.assets.length <= limit) {
-    return input.assets;
+    return selectDiverseAssets(
+      input.assets.map((asset, index) => ({
+        ...asset,
+        score: input.assets.length - index
+      })),
+      input.assets.length
+    );
   }
 
   const config = await getAiModelConfig();
 
   if (!config.embedding.model) {
-    return keywordRetrieve({
+    return selectDiverseAssets(keywordRetrieve({
       campaignGoal: input.campaignGoal,
       assets: input.assets,
-      limit
-    });
+      limit: candidateLimit
+    }), limit);
   }
 
   const vectorStore = await MemoryVectorStore.fromDocuments(
     input.assets.map(assetToDocument),
     await createEmbeddingModel()
   );
-  const results = await vectorStore.similaritySearchWithScore(input.campaignGoal, limit);
-
-  return results.map(([document, score]) => {
+  const results = await vectorStore.similaritySearchWithScore(input.campaignGoal, candidateLimit);
+  const rankedCandidates = results.map(([document, score]) => {
     const source = input.assets.find((item) => item.id === document.metadata.id);
 
     return {
@@ -123,9 +270,29 @@ export async function retrieveRelevantAssets(input: {
         imageAnalysis: null,
         content: document.pageContent
       }),
-      score
+      score: typeof score === "number" ? score : undefined
     };
   });
+
+  return selectDiverseAssets(rankedCandidates, limit);
+}
+
+function extractDistinctSignals(item: ProductAssetForGeneration) {
+  const signals = candidateSignals(item);
+  const parameterText = signals.parameters.length ? signals.parameters.join(" / ") : "无明确参数";
+  const sceneText = signals.scenes.length ? signals.scenes.join(" / ") : "无明确场景";
+  const emotionText = signals.emotions.length ? signals.emotions.join(" / ") : "无明确情绪";
+  const tagText = item.tags.length ? item.tags.join(" / ") : "无标签";
+  const visualText = item.imageAnalysis?.trim() || "无图片分析";
+
+  return [
+    `素材${item.id}`,
+    `- 产品参数：${parameterText}`,
+    `- 使用场景：${sceneText}`,
+    `- 用户情绪：${emotionText}`,
+    `- 标签：${tagText}`,
+    `- 图片特征：${visualText}`
+  ].join("\n");
 }
 
 export async function generateMomentContent(input: {
@@ -140,17 +307,7 @@ export async function generateMomentContent(input: {
     limit: 8
   });
   const assetContent = relevantAssets
-    .map((item, index) => {
-      return [
-        `素材${index + 1}`,
-        `标题：${item.title || "未命名"}`,
-        `类型：${String(item.type).toUpperCase() === "IMAGE" ? "图片" : "文本"}`,
-        `标签：${item.tags.join(", ") || "无"}`,
-        `图片：${item.imageUrl || "无"}`,
-        `图片分析：${item.imageAnalysis || "无"}`,
-        `内容：${item.content || "无"}`
-      ].join("\n");
-    })
+    .map((item) => extractDistinctSignals(item))
     .join("\n\n---\n\n");
   const model = await createChatModel({ temperature: 0.75 });
   const chain = contentPrompt.pipe(model).pipe(new StringOutputParser());
