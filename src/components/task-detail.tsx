@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { CheckCircle2, Clipboard, Loader2, Save, Wand2 } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { CheckCircle2, Clipboard, Loader2, Save, Trash2, Wand2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -65,6 +66,7 @@ const statusLabel: Record<string, string> = {
 };
 
 export function TaskDetail({ taskId }: { taskId: string }) {
+  const router = useRouter();
   const [task, setTask] = useState<TaskPayload | null>(null);
   const [selectedVersionId, setSelectedVersionId] = useState("");
   const [editing, setEditing] = useState(false);
@@ -226,6 +228,57 @@ export function TaskDetail({ taskId }: { taskId: string }) {
     }
   }
 
+  async function deleteTask() {
+    if (!task || !window.confirm(`确定删除「${task.title}」吗？该任务的所有版本和日历记录都会一起删除。`)) {
+      return;
+    }
+
+    setBusy(true);
+    setMessage("");
+    try {
+      const response = await fetch(`/api/content-tasks/${taskId}`, {
+        method: "DELETE"
+      });
+
+      if (!response.ok) {
+        throw new Error("删除任务失败");
+      }
+
+      router.push("/tasks");
+      router.refresh();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "删除任务失败");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deleteSelectedVersion() {
+    if (!selectedVersion || !window.confirm(`确定删除「${selectedVersion.label}」吗？`)) {
+      return;
+    }
+
+    setBusy(true);
+    setMessage("");
+    try {
+      const response = await fetch(`/api/content-tasks/${taskId}/versions?versionId=${encodeURIComponent(selectedVersion.id)}`, {
+        method: "DELETE"
+      });
+
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => ({}))) as { error?: string };
+        throw new Error(payload.error || "删除版本失败");
+      }
+
+      setMessage("版本已删除。");
+      await loadTask();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "删除版本失败");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function startEditing() {
     if (!selectedVersion) {
       return;
@@ -256,6 +309,10 @@ export function TaskDetail({ taskId }: { taskId: string }) {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
+          <Button type="button" variant="destructive" size="sm" onClick={deleteTask} disabled={busy} className="w-full">
+            <Trash2 className="mr-2 size-4" aria-hidden="true" />
+            删除任务
+          </Button>
           {task.versions.map((version) => (
             <button
               key={version.id}
@@ -299,6 +356,10 @@ export function TaskDetail({ taskId }: { taskId: string }) {
                 </Button>
                 <Button type="button" onClick={finalizeVersion} disabled={busy || !selectedVersion}>
                   定稿
+                </Button>
+                <Button type="button" variant="destructive" onClick={deleteSelectedVersion} disabled={busy || !selectedVersion}>
+                  <Trash2 className="mr-2 size-4" aria-hidden="true" />
+                  删除版本
                 </Button>
               </div>
             </div>

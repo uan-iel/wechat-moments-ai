@@ -61,3 +61,44 @@ export async function POST(request: Request) {
 
   return NextResponse.json({ productAsset }, { status: 201 });
 }
+
+export async function DELETE(request: Request) {
+  const id = new URL(request.url).searchParams.get("id");
+
+  if (!id) {
+    return NextResponse.json({ error: "Product asset id is required" }, { status: 400 });
+  }
+
+  const tasks = await prisma.contentTask.findMany({
+    where: {
+      selectedAssetIds: {
+        has: id
+      }
+    },
+    select: {
+      id: true,
+      selectedAssetIds: true
+    }
+  });
+
+  await Promise.all(
+    tasks.map((task) =>
+      prisma.contentTask.update({
+        where: {
+          id: task.id
+        },
+        data: {
+          selectedAssetIds: task.selectedAssetIds.filter((assetId) => assetId !== id)
+        }
+      })
+    )
+  );
+
+  await prisma.productAsset.delete({
+    where: {
+      id
+    }
+  });
+
+  return NextResponse.json({ ok: true });
+}

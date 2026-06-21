@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Eye, ImageIcon, Loader2, Plus, Shapes, ShoppingBag } from "lucide-react";
+import { Eye, ImageIcon, Loader2, Plus, Shapes, ShoppingBag, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -215,6 +215,41 @@ export function KnowledgeManagement() {
     }
   }
 
+  async function deleteResource(kind: "content-formats" | "products" | "product-assets", id: string, label: string) {
+    if (!window.confirm(`确定删除「${label}」吗？相关下级资料也会一起删除。`)) {
+      return;
+    }
+
+    setBusy(true);
+    setMessage("");
+    try {
+      const response = await fetch(`/api/${kind}?id=${encodeURIComponent(id)}`, {
+        method: "DELETE"
+      });
+
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => ({}))) as { error?: string };
+        throw new Error(payload.error || "删除失败");
+      }
+
+      if (kind === "content-formats" && selectedFormatId === id) {
+        setSelectedFormatId("");
+        setSelectedProductId("");
+      }
+
+      if (kind === "products" && selectedProductId === id) {
+        setSelectedProductId("");
+      }
+
+      setMessage("已删除。");
+      await loadFormats();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "删除失败");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="grid gap-6 xl:grid-cols-[25rem_1fr]">
       <div className="space-y-6">
@@ -291,25 +326,40 @@ export function KnowledgeManagement() {
             {message ? <p className="rounded-lg bg-slate-50 p-3 text-sm text-muted-foreground">{message}</p> : null}
             <div className="grid gap-3 lg:grid-cols-2">
               {formats.map((format) => (
-                <button
+                <div
                   key={format.id}
-                  type="button"
-                  onClick={() => {
-                    setSelectedFormatId(format.id);
-                    setSelectedProductId(format.products[0]?.id || "");
-                  }}
                   className={cn(
-                    "rounded-xl border p-4 text-left transition",
+                    "rounded-xl border p-4 transition",
                     selectedFormatId === format.id ? "border-primary bg-primary/5" : "border-slate-200 bg-white hover:bg-slate-50"
                   )}
                 >
-                  <div className="flex items-center gap-2 font-semibold text-slate-950">
-                    <Shapes className="size-4 text-primary" aria-hidden="true" />
-                    {format.name}
-                  </div>
-                  <p className="mt-2 text-sm leading-6 text-muted-foreground">{format.description || "暂无说明"}</p>
-                  <p className="mt-2 text-xs text-muted-foreground">{format.products.length} 个产品</p>
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedFormatId(format.id);
+                      setSelectedProductId(format.products[0]?.id || "");
+                    }}
+                    className="block w-full text-left"
+                  >
+                    <div className="flex items-center gap-2 font-semibold text-slate-950">
+                      <Shapes className="size-4 text-primary" aria-hidden="true" />
+                      {format.name}
+                    </div>
+                    <p className="mt-2 text-sm leading-6 text-muted-foreground">{format.description || "暂无说明"}</p>
+                    <p className="mt-2 text-xs text-muted-foreground">{format.products.length} 个产品</p>
+                  </button>
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    size="sm"
+                    className="mt-3"
+                    onClick={() => deleteResource("content-formats", format.id, format.name)}
+                    disabled={busy}
+                  >
+                    <Trash2 className="mr-2 size-4" aria-hidden="true" />
+                    删除
+                  </Button>
+                </div>
               ))}
             </div>
 
@@ -318,15 +368,28 @@ export function KnowledgeManagement() {
                 <Label>选择产品</Label>
                 <div className="mt-3 flex flex-wrap gap-2">
                   {selectedFormat.products.map((product) => (
-                    <Button
-                      key={product.id}
-                      type="button"
-                      variant={selectedProductId === product.id ? "default" : "outline"}
-                      size="sm"
-                      onClick={() => setSelectedProductId(product.id)}
-                    >
-                      {product.name}
-                    </Button>
+                    <div key={product.id} className="inline-flex items-center rounded-lg border border-slate-200 bg-white">
+                      <Button
+                        type="button"
+                        variant={selectedProductId === product.id ? "default" : "ghost"}
+                        size="sm"
+                        onClick={() => setSelectedProductId(product.id)}
+                        className="rounded-r-none"
+                      >
+                        {product.name}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        className="rounded-l-none text-destructive hover:text-destructive"
+                        onClick={() => deleteResource("products", product.id, product.name)}
+                        disabled={busy}
+                        aria-label={`删除 ${product.name}`}
+                      >
+                        <Trash2 className="size-4" aria-hidden="true" />
+                      </Button>
+                    </div>
                   ))}
                 </div>
               </div>
@@ -394,9 +457,22 @@ export function KnowledgeManagement() {
             <CardContent className="grid gap-3 md:grid-cols-2">
               {selectedProduct.assets.map((asset) => (
                 <div key={asset.id} className="rounded-xl border border-slate-200 bg-white p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="font-semibold text-slate-950">{asset.title || "未命名素材"}</p>
-                    {String(asset.type).toUpperCase() === "IMAGE" ? <ImageIcon className="size-4 text-primary" aria-hidden="true" /> : null}
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                      <p className="font-semibold text-slate-950">{asset.title || "未命名素材"}</p>
+                      {String(asset.type).toUpperCase() === "IMAGE" ? <ImageIcon className="size-4 text-primary" aria-hidden="true" /> : null}
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      className="text-destructive hover:text-destructive"
+                      onClick={() => deleteResource("product-assets", asset.id, asset.title || "未命名素材")}
+                      disabled={busy}
+                      aria-label="删除素材"
+                    >
+                      <Trash2 className="size-4" aria-hidden="true" />
+                    </Button>
                   </div>
                   <p className="mt-2 line-clamp-4 whitespace-pre-wrap text-sm leading-6 text-muted-foreground">
                     {asset.content || asset.imageUrl || "暂无内容"}

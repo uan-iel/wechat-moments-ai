@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ArrowRight, CheckCircle2, FileText } from "lucide-react";
+import { ArrowRight, CheckCircle2, FileText, Trash2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -64,6 +64,7 @@ export function TaskList() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [filter, setFilter] = useState<FilterKey>("ALL");
   const [loading, setLoading] = useState(true);
+  const [deletingId, setDeletingId] = useState("");
 
   async function loadTasks() {
     setLoading(true);
@@ -76,6 +77,29 @@ export function TaskList() {
   useEffect(() => {
     void loadTasks();
   }, []);
+
+  async function deleteTask(task: Task) {
+    if (!window.confirm(`确定删除「${task.title}」吗？该任务的所有版本和日历记录都会一起删除。`)) {
+      return;
+    }
+
+    setDeletingId(task.id);
+    try {
+      const response = await fetch(`/api/content-tasks/${task.id}`, {
+        method: "DELETE"
+      });
+
+      if (!response.ok) {
+        throw new Error("删除任务失败");
+      }
+
+      await loadTasks();
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "删除任务失败");
+    } finally {
+      setDeletingId("");
+    }
+  }
 
   const filteredTasks = useMemo(() => {
     if (filter === "ALL") {
@@ -131,12 +155,24 @@ export function TaskList() {
                     内容形式：{task.contentFormat?.name || "未选择"} · 产品：{task.product?.name || "未选择"} · 更新于 {new Date(task.updatedAt).toLocaleString("zh-CN")}
                   </p>
                 </div>
-                <Link href={`/tasks/${task.id}`}>
-                  <Button type="button" size="sm">
-                    打开
-                    <ArrowRight className="ml-2 size-4" aria-hidden="true" />
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => deleteTask(task)}
+                    disabled={deletingId === task.id}
+                  >
+                    <Trash2 className="mr-2 size-4" aria-hidden="true" />
+                    删除
                   </Button>
-                </Link>
+                  <Link href={`/tasks/${task.id}`}>
+                    <Button type="button" size="sm">
+                      打开
+                      <ArrowRight className="ml-2 size-4" aria-hidden="true" />
+                    </Button>
+                  </Link>
+                </div>
               </CardHeader>
               <CardContent>
                 <div className="rounded-xl bg-slate-50 p-4">

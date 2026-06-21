@@ -62,3 +62,45 @@ export async function POST(request: Request, { params }: RouteContext) {
 
   return NextResponse.json({ contentVersion }, { status: 201 });
 }
+
+export async function DELETE(request: Request, { params }: RouteContext) {
+  const versionId = new URL(request.url).searchParams.get("versionId");
+
+  if (!versionId) {
+    return NextResponse.json({ error: "Content version id is required" }, { status: 400 });
+  }
+
+  const version = await prisma.contentVersion.findFirst({
+    where: {
+      id: versionId,
+      taskId: params.id
+    },
+    select: {
+      id: true,
+      isFinal: true
+    }
+  });
+
+  if (!version) {
+    return NextResponse.json({ error: "Content version not found" }, { status: 404 });
+  }
+
+  await prisma.contentVersion.delete({
+    where: {
+      id: versionId
+    }
+  });
+
+  if (version.isFinal) {
+    await prisma.contentTask.update({
+      where: {
+        id: params.id
+      },
+      data: {
+        status: ContentTaskStatus.DRAFT
+      }
+    });
+  }
+
+  return NextResponse.json({ ok: true });
+}

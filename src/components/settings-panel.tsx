@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CheckCircle2, Eye, FileText, ImageIcon, KeyRound, Loader2, Mic, Save, Search } from "lucide-react";
+import { CheckCircle2, Clock, Eye, FileText, ImageIcon, KeyRound, Loader2, Mic, RefreshCw, Save, Search, XCircle } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { cn } from "@/lib/utils";
 
 type Capability = "llm" | "embedding" | "vision" | "image" | "audio";
 
@@ -24,6 +25,12 @@ type SettingsPayload = {
 
 type EndpointDraft = EndpointSettings & {
   apiKey: string;
+};
+
+type CapabilityFeedback = {
+  ok: boolean;
+  message: string;
+  elapsedMs?: number;
 };
 
 const capabilityMeta: Array<{
@@ -99,6 +106,15 @@ function emptyDrafts(): Record<Capability, EndpointDraft> {
 
 export function SettingsPanel() {
   const [drafts, setDrafts] = useState<Record<Capability, EndpointDraft>>(emptyDrafts);
+  const [modelOptions, setModelOptions] = useState<Record<Capability, string[]>>({
+    llm: [],
+    embedding: [],
+    vision: [],
+    image: [],
+    audio: []
+  });
+  const [fetchingModels, setFetchingModels] = useState<Capability | null>(null);
+  const [testResults, setTestResults] = useState<Partial<Record<Capability, CapabilityFeedback>>>({});
   const [busy, setBusy] = useState(false);
   const [testing, setTesting] = useState<Capability | null>(null);
   const [message, setMessage] = useState("");
@@ -132,6 +148,80 @@ export function SettingsPanel() {
         ...patch
       }
     }));
+    setTestResults((current) => {
+      const next = { ...current };
+      delete next[capability];
+      return next;
+    });
+  }
+
+  function endpointPayload(capability: Capability) {
+    return {
+      baseUrl: drafts[capability].baseUrl,
+      model: drafts[capability].model,
+      apiKey: drafts[capability].apiKey
+    };
+  }
+
+  async function fetchModels(capability: Capability) {
+    setFetchingModels(capability);
+    setMessage("");
+    setTestResults((current) => ({
+      ...current,
+      [capability]: {
+        ok: false,
+        message: "正在获取模型列表..."
+      }
+    }));
+
+    try {
+      const response = await fetch("/api/settings/models", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          capability,
+          endpoint: {
+            baseUrl: drafts[capability].baseUrl,
+            apiKey: drafts[capability].apiKey
+          }
+        })
+      });
+      const payload = (await response.json()) as {
+        ok?: boolean;
+        models?: string[];
+        error?: string;
+        elapsedMs?: number;
+      };
+
+      if (!response.ok || !payload.ok) {
+        throw new Error(payload.error || "获取模型列表失败");
+      }
+
+      setModelOptions((current) => ({
+        ...current,
+        [capability]: payload.models || []
+      }));
+      setTestResults((current) => ({
+        ...current,
+        [capability]: {
+          ok: true,
+          message: payload.models?.length ? `已获取 ${payload.models.length} 个模型。` : "已连接，但没有返回可选模型。",
+          elapsedMs: payload.elapsedMs
+        }
+      }));
+    } catch (error) {
+      setTestResults((current) => ({
+        ...current,
+        [capability]: {
+          ok: false,
+          message: error instanceof Error ? error.message : "获取模型列表失败"
+        }
+      }));
+    } finally {
+      setFetchingModels(null);
+    }
   }
 
   async function saveSettings() {
@@ -173,23 +263,47 @@ export function SettingsPanel() {
   async function testCapability(capability: Capability) {
     setTesting(capability);
     setMessage("");
+    setTestResults((current) => ({
+      ...current,
+      [capability]: {
+        ok: false,
+        message: "正在测试..."
+      }
+    }));
+
     try {
       const response = await fetch("/api/settings/test-ai", {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
         },
-        body: JSON.stringify({ capability })
+        body: JSON.stringify({
+          capability,
+          endpoint: endpointPayload(capability)
+        })
       });
-      const payload = (await response.json()) as { ok?: boolean; response?: string; error?: string };
+      const payload = (await response.json()) as { ok?: boolean; response?: string; error?: string; elapsedMs?: number };
 
       if (!response.ok || !payload.ok) {
         throw new Error(payload.error || "模型连通测试失败");
       }
 
-      setMessage(payload.response || "模型配置可用。");
+      setTestResults((current) => ({
+        ...current,
+        [capability]: {
+          ok: true,
+          message: payload.response || "模型配置可用。",
+          elapsedMs: payload.elapsedMs
+        }
+      }));
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "模型连通测试失败");
+      setTestResults((current) => ({
+        ...current,
+        [capability]: {
+          ok: false,
+          message: error instanceof Error ? error.message : "模型连通测试失败"
+        }
+      }));
     } finally {
       setTesting(null);
     }
@@ -208,6 +322,8 @@ export function SettingsPanel() {
           {capabilityMeta.map((item) => {
             const Icon = item.icon;
             const draft = drafts[item.key];
+            const options = Array.from(new Set([draft.model, ...modelOptions[item.key]].filter(Boolean)));
+            const feedback = testResults[item.key];
 
             return (
               <div key={item.key} className="rounded-xl border border-slate-200 bg-white p-4">
@@ -232,13 +348,21 @@ export function SettingsPanel() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor={`${item.key}-model`}>模型名称</Label>
-                    <Input
+                    <Label htmlFor={`${item.key}-model`}>模型</Label>
+                    <select
                       id={`${item.key}-model`}
+                      className="h-10 w-full rounded-lg border border-input bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
                       value={draft.model}
                       onChange={(event) => updateEndpoint(item.key, { model: event.target.value })}
-                      placeholder={item.modelPlaceholder}
-                    />
+                    >
+                      <option value="">{options.length ? "请选择模型" : "先获取模型列表"}</option>
+                      {options.map((model) => (
+                        <option key={model} value={model}>
+                          {model}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-xs text-muted-foreground">从 Base URL 返回的模型列表中选择。</p>
                   </div>
                 </div>
 
@@ -261,6 +385,20 @@ export function SettingsPanel() {
                     type="button"
                     variant="outline"
                     size="sm"
+                    onClick={() => fetchModels(item.key)}
+                    disabled={fetchingModels === item.key}
+                  >
+                    {fetchingModels === item.key ? (
+                      <Loader2 className="mr-2 size-4 animate-spin" aria-hidden="true" />
+                    ) : (
+                      <RefreshCw className="mr-2 size-4" aria-hidden="true" />
+                    )}
+                    获取模型
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={feedback?.ok ? "secondary" : "outline"}
+                    size="sm"
                     onClick={() => testCapability(item.key)}
                     disabled={testing === item.key}
                   >
@@ -272,6 +410,23 @@ export function SettingsPanel() {
                     测试
                   </Button>
                 </div>
+                {feedback ? (
+                  <div
+                    className={cn(
+                      "mt-3 flex flex-wrap items-center gap-2 rounded-lg px-3 py-2 text-sm",
+                      feedback.ok ? "bg-emerald-50 text-emerald-800" : "bg-rose-50 text-rose-800"
+                    )}
+                  >
+                    {feedback.ok ? <CheckCircle2 className="size-4" aria-hidden="true" /> : <XCircle className="size-4" aria-hidden="true" />}
+                    <span>{feedback.message}</span>
+                    {typeof feedback.elapsedMs === "number" ? (
+                      <span className="inline-flex items-center gap-1 text-xs opacity-80">
+                        <Clock className="size-3" aria-hidden="true" />
+                        {feedback.elapsedMs}ms
+                      </span>
+                    ) : null}
+                  </div>
+                ) : null}
               </div>
             );
           })}

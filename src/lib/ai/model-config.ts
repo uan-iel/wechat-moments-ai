@@ -19,6 +19,10 @@ export type AiModelEndpoint = {
   encryptedApiKey?: string;
 };
 
+export type AiRuntimeEndpoint = AiModelEndpoint & {
+  apiKey: string;
+};
+
 export type AiModelEndpointForClient = {
   baseUrl: string;
   model: string;
@@ -252,14 +256,19 @@ export async function saveAiModelConfig(input: Partial<Record<AiCapability, AiMo
   return getAiModelSettingsForClient();
 }
 
-async function getRuntimeEndpoint(capability: AiCapability) {
+export async function getRuntimeEndpoint(
+  capability: AiCapability,
+  override?: AiModelEndpointInput
+): Promise<AiRuntimeEndpoint> {
   const endpoints = await getAiModelConfig();
   const endpoint = endpoints[capability];
   const encryptedKey = endpoint.encryptedApiKey;
-  const apiKey = encryptedKey ? decryptText(encryptedKey) : capabilityEnvKey(capability);
+  const apiKey = cleanOptionalString(override?.apiKey) || (encryptedKey ? decryptText(encryptedKey) : capabilityEnvKey(capability));
 
   return {
     ...endpoint,
+    baseUrl: typeof override?.baseUrl === "string" ? cleanOptionalString(override.baseUrl) : endpoint.baseUrl,
+    model: typeof override?.model === "string" ? cleanOptionalString(override.model) : endpoint.model,
     apiKey
   };
 }
@@ -276,8 +285,9 @@ export async function createChatModel(options?: {
   capability?: Extract<AiCapability, "llm" | "vision">;
   temperature?: number;
   model?: string;
+  endpoint?: AiModelEndpointInput;
 }) {
-  const endpoint = await getRuntimeEndpoint(options?.capability ?? "llm");
+  const endpoint = await getRuntimeEndpoint(options?.capability ?? "llm", options?.endpoint);
   const model = options?.model || endpoint.model;
 
   if (!model) {
@@ -295,6 +305,14 @@ export async function createChatModel(options?: {
 export async function createEmbeddingModel() {
   const endpoint = await getRuntimeEndpoint("embedding");
 
+  if (!endpoint.model) {
+    throw new Error("未配置向量模型。");
+  }
+
+  return createEmbeddingModelFromEndpoint(endpoint);
+}
+
+export function createEmbeddingModelFromEndpoint(endpoint: AiRuntimeEndpoint) {
   if (!endpoint.model) {
     throw new Error("未配置向量模型。");
   }

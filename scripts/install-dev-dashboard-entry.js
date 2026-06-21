@@ -11,7 +11,7 @@ const entry = `  {
     "desc": "朋友圈智能营销 AI Agent (port 3100)",
     "intro": (
       "Next.js 14 + Prisma + LangChain 的朋友圈智能营销助手。"
-      "包含风格学习、内容工厂、多版本定稿、发布日历和模型设置。"
+      "包含本地知识库、内容工厂、多版本定稿、发布日历和模型设置。"
     ),
     "port": 3100,
     "group": "AI",
@@ -29,7 +29,7 @@ const entry = `  {
     "url_path": "/",
     "has_git": True,
     "update_cmd": ["git", "pull", "--ff-only"],
-    "tags": ["朋友圈", "文案", "营销", "AI Agent"],
+    "tags": ["朋友圈", "本地文案", "知识库", "多版本", "AI Agent"],
   },
 `;
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { CalendarDays, Plus } from "lucide-react";
+import { CalendarDays, Plus, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -116,6 +116,24 @@ export function PublishCalendar() {
     await loadCalendar();
   }
 
+  async function deleteEntry(entry: CalendarEntry) {
+    if (!window.confirm(`确定删除「${entry.task.title}」这条日历记录吗？`)) {
+      return;
+    }
+
+    const response = await fetch(`/api/publish-calendar?id=${encodeURIComponent(entry.id)}`, {
+      method: "DELETE"
+    });
+
+    if (!response.ok) {
+      setMessage("删除日历记录失败。");
+      return;
+    }
+
+    setMessage("日历记录已删除。");
+    await loadCalendar();
+  }
+
   return (
     <div className="grid gap-6 xl:grid-cols-[22rem_1fr]">
       <Card className="panel-card h-fit">
@@ -203,7 +221,17 @@ export function PublishCalendar() {
                   <div className="mt-2 space-y-2">
                     {dayEntries.map((entry) => (
                       <div key={entry.id} className="rounded-lg bg-slate-50 p-2">
-                        <p className="line-clamp-2 text-xs font-medium text-slate-800">{entry.task.title}</p>
+                        <div className="flex items-start justify-between gap-2">
+                          <p className="line-clamp-2 text-xs font-medium text-slate-800">{entry.task.title}</p>
+                          <button
+                            type="button"
+                            onClick={() => deleteEntry(entry)}
+                            className="text-muted-foreground hover:text-destructive"
+                            aria-label="删除日历记录"
+                          >
+                            <Trash2 className="size-3.5" aria-hidden="true" />
+                          </button>
+                        </div>
                         <p className="mt-1 text-[11px] text-muted-foreground">
                           {String(entry.status).toUpperCase() === "POSTED" ? "已发布" : "计划发布"}
                         </p>

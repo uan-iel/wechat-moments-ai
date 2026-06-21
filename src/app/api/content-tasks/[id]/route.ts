@@ -151,3 +151,13 @@ export async function PATCH(request: Request, { params }: RouteContext) {
 
   return NextResponse.json({ contentTask });
 }
+
+export async function DELETE(_request: Request, { params }: RouteContext) {
+  await prisma.contentTask.delete({
+    where: {
+      id: params.id
+    }
+  });
+
+  return NextResponse.json({ ok: true });
+}

@@ -94,3 +94,19 @@ export async function POST(request: Request) {
 
   return NextResponse.json({ entry }, { status: 201 });
 }
+
+export async function DELETE(request: Request) {
+  const id = new URL(request.url).searchParams.get("id");
+
+  if (!id) {
+    return NextResponse.json({ error: "Calendar entry id is required" }, { status: 400 });
+  }
+
+  await prisma.publishCalendarEntry.delete({
+    where: {
+      id
+    }
+  });
+
+  return NextResponse.json({ ok: true });
+}

@@ -3,14 +3,23 @@ import { z } from "zod";
 
 import {
   createChatModel,
+  createEmbeddingModelFromEndpoint,
   createEmbeddingModel,
+  getRuntimeEndpoint,
   getAiModelSettingsForClient
 } from "@/lib/ai/model-config";
 
 export const dynamic = "force-dynamic";
 
 const testAiSchema = z.object({
-  capability: z.enum(["llm", "embedding", "vision", "image", "audio"]).default("llm")
+  capability: z.enum(["llm", "embedding", "vision", "image", "audio"]).default("llm"),
+  endpoint: z
+    .object({
+      baseUrl: z.string().optional(),
+      model: z.string().optional(),
+      apiKey: z.string().optional()
+    })
+    .optional()
 });
 
 const capabilityLabels = {
@@ -22,6 +31,8 @@ const capabilityLabels = {
 } as const;
 
 export async function POST(request: Request) {
+  const startedAt = Date.now();
+
   try {
     const body = await request.json().catch(() => ({}));
     const parsed = testAiSchema.safeParse(body);
@@ -39,13 +50,22 @@ export async function POST(request: Request) {
     const settings = await getAiModelSettingsForClient();
     const capability = parsed.data.capability;
 
-    const endpoint = settings[capability];
+    const runtimeEndpoint = await getRuntimeEndpoint(capability, parsed.data.endpoint);
+    const endpoint = parsed.data.endpoint
+      ? {
+          ...settings[capability],
+          baseUrl: runtimeEndpoint.baseUrl,
+          model: runtimeEndpoint.model,
+          hasApiKey: Boolean(runtimeEndpoint.apiKey)
+        }
+      : settings[capability];
 
     if (!endpoint.hasApiKey) {
       return NextResponse.json(
         {
           ok: false,
-          error: `请先配置${capabilityLabels[capability]} API Key。`
+          error: `请先配置${capabilityLabels[capability]} API Key。`,
+          elapsedMs: Date.now() - startedAt
         },
         { status: 400 }
       );
@@ -55,7 +75,8 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           ok: false,
-          error: `请先配置${capabilityLabels[capability]}模型名称。`
+          error: `请先配置${capabilityLabels[capability]}模型名称。`,
+          elapsedMs: Date.now() - startedAt
         },
         { status: 400 }
       );
@@ -64,7 +85,8 @@ export async function POST(request: Request) {
     if (capability === "llm") {
       const model = await createChatModel({
         temperature: 0,
-        model: endpoint.model
+        model: endpoint.model,
+        endpoint: parsed.data.endpoint
       });
       const response = await model.invoke("请只回复 OK，用于测试模型连通性。");
 
@@ -72,19 +94,23 @@ export async function POST(request: Request) {
         ok: true,
         capability,
         model: endpoint.model,
-        response: typeof response.content === "string" ? response.content : "OK"
+        response: typeof response.content === "string" ? response.content : "OK",
+        elapsedMs: Date.now() - startedAt
       });
     }
 
     if (capability === "embedding") {
-      const embeddings = await createEmbeddingModel();
+      const embeddings = parsed.data.endpoint
+        ? createEmbeddingModelFromEndpoint(runtimeEndpoint)
+        : await createEmbeddingModel();
       const vector = await embeddings.embedQuery("朋友圈智能营销素材检索测试");
 
       return NextResponse.json({
         ok: true,
         capability,
         model: endpoint.model,
-        response: `向量维度 ${vector.length}`
+        response: `向量维度 ${vector.length}`,
+        elapsedMs: Date.now() - startedAt
       });
     }
 
@@ -92,13 +118,15 @@ export async function POST(request: Request) {
       ok: true,
       capability,
       model: endpoint.model,
-      response: `${capabilityLabels[capability]}配置已就绪。此项未发起真实素材调用。`
+      response: `${capabilityLabels[capability]}配置已就绪。此项未发起真实素材调用。`,
+      elapsedMs: Date.now() - startedAt
     });
   } catch (error) {
     return NextResponse.json(
       {
         ok: false,
-        error: error instanceof Error ? error.message : "模型连接测试失败"
+        error: error instanceof Error ? error.message : "模型连接测试失败",
+        elapsedMs: Date.now() - startedAt
       },
       { status: 500 }
     );
