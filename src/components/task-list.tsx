@@ -1,16 +1,18 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { ArrowRight, CheckCircle2, FileText, Trash2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { platformLabel, platformOptions, type ContentPlatformValue } from "@/lib/platforms";
 import { cn } from "@/lib/utils";
 
 type Task = {
   id: string;
+  platform: ContentPlatformValue | "moments" | "xiaohongshu";
   title: string;
   campaignGoal: string;
   status: "DRAFT" | "FINALIZED" | "FAILED" | "draft" | "finalized" | "failed";
@@ -61,22 +63,23 @@ function normalizeStatus(status: Task["status"]) {
 }
 
 export function TaskList() {
+  const [platform, setPlatform] = useState<ContentPlatformValue>("MOMENTS");
   const [tasks, setTasks] = useState<Task[]>([]);
   const [filter, setFilter] = useState<FilterKey>("ALL");
   const [loading, setLoading] = useState(true);
   const [deletingId, setDeletingId] = useState("");
 
-  async function loadTasks() {
+  const loadTasks = useCallback(async () => {
     setLoading(true);
-    const response = await fetch("/api/content-tasks", { cache: "no-store" });
+    const response = await fetch(`/api/content-tasks?platform=${platform}`, { cache: "no-store" });
     const payload = (await response.json()) as { contentTasks: Task[] };
     setTasks(payload.contentTasks);
     setLoading(false);
-  }
+  }, [platform]);
 
   useEffect(() => {
     void loadTasks();
-  }, []);
+  }, [loadTasks]);
 
   async function deleteTask(task: Task) {
     if (!window.confirm(`确定删除「${task.title}」吗？该任务的所有版本和日历记录都会一起删除。`)) {
@@ -112,7 +115,21 @@ export function TaskList() {
   return (
     <div className="space-y-5">
       <Card className="panel-card">
-        <CardContent className="flex flex-wrap gap-2 p-4">
+        <CardContent className="space-y-3 p-4">
+          <div className="grid grid-cols-2 gap-2 sm:w-72">
+            {platformOptions.map((option) => (
+              <Button
+                key={option.value}
+                type="button"
+                variant={platform === option.value ? "default" : "outline"}
+                size="sm"
+                onClick={() => setPlatform(option.value)}
+              >
+                {option.label}
+              </Button>
+            ))}
+          </div>
+          <div className="flex flex-wrap gap-2">
           {(["ALL", "DRAFT", "FINALIZED", "FAILED"] as const).map((item) => (
             <Button
               key={item}
@@ -124,6 +141,7 @@ export function TaskList() {
               {item === "ALL" ? "全部" : statusLabel[item]}
             </Button>
           ))}
+          </div>
         </CardContent>
       </Card>
 
@@ -145,6 +163,7 @@ export function TaskList() {
                     <Badge className={cn("ring-1", statusClass[task.status])}>
                       {statusLabel[task.status]}
                     </Badge>
+                    <Badge variant="outline">{platformLabel(task.platform)}</Badge>
                     <span className="text-xs text-muted-foreground">{task._count.versions} 个版本</span>
                     {task._count.calendarEntries ? (
                       <span className="text-xs text-muted-foreground">{task._count.calendarEntries} 条日历记录</span>
@@ -193,7 +212,7 @@ export function TaskList() {
       {!loading && filteredTasks.length === 0 ? (
         <Card className="panel-card">
           <CardContent className="p-8 text-center text-sm text-muted-foreground">
-            暂无任务。去内容工厂生成第一条文案。
+            当前平台下暂无任务。去内容工厂生成第一条文案。
           </CardContent>
         </Card>
       ) : null}

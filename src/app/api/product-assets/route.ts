@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { prisma } from "@/lib/prisma";
+import { removeProductAssetFile } from "@/lib/server/product-asset-files";
 
 export const dynamic = "force-dynamic";
 
@@ -94,11 +95,22 @@ export async function DELETE(request: Request) {
     )
   );
 
+  const existingAsset = await prisma.productAsset.findUnique({
+    where: {
+      id
+    },
+    select: {
+      imageUrl: true
+    }
+  });
+
   await prisma.productAsset.delete({
     where: {
       id
     }
   });
+
+  await removeProductAssetFile(existingAsset?.imageUrl);
 
   return NextResponse.json({ ok: true });
 }

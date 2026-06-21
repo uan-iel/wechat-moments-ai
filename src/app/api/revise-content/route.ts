@@ -23,6 +23,13 @@ export async function POST(request: Request) {
     where: {
       id: parsed.data.contentVersionId,
       taskId: parsed.data.contentTaskId
+    },
+    include: {
+      task: {
+        select: {
+          platform: true
+        }
+      }
     }
   });
 
@@ -32,6 +39,7 @@ export async function POST(request: Request) {
 
   try {
     const revisedContent = await reviseMomentContent({
+      platform: contentVersion.task.platform,
       content: contentVersion.content,
       revisionInstruction: parsed.data.revisionInstruction
     });

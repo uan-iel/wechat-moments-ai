@@ -8,7 +8,7 @@ export default function CalendarPage() {
   return (
     <AppShell
       title="发布日历"
-      description="手动记录计划发布或已经发布的文案，不触发任何外部平台操作。"
+      description="手动记录朋友圈或小红书的计划发布与已发布文案，不触发任何外部平台操作。"
       maxWidth="7xl"
       actions={
         <Button asChild variant="outline">

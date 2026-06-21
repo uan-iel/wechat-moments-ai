@@ -24,6 +24,7 @@ export async function GET(_request: Request, { params }: RouteContext) {
     },
     select: {
       id: true,
+      platform: true,
       title: true,
       campaignGoal: true,
       contentFormatId: true,

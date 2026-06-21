@@ -1,4 +1,4 @@
-import { ContentTaskStatus, ProductAssetType } from "@prisma/client";
+import { ContentPlatform, ContentTaskStatus, ProductAssetType } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
@@ -8,6 +8,7 @@ import { prisma } from "@/lib/prisma";
 
 const generateContentSchema = z.object({
   contentTaskId: z.string().min(1).optional(),
+  platform: z.enum(["MOMENTS", "XIAOHONGSHU"]).default("MOMENTS"),
   campaignGoal: z.string().min(1),
   contentFormatId: z.string().min(1),
   productId: z.string().min(1),
@@ -40,7 +41,10 @@ export async function POST(request: Request) {
     const product = await prisma.product.findFirst({
       where: {
         id: parsed.data.productId,
-        contentFormatId: parsed.data.contentFormatId
+        contentFormatId: parsed.data.contentFormatId,
+        contentFormat: {
+          platform: parsed.data.platform as ContentPlatform
+        }
       },
       include: {
         contentFormat: true,
@@ -89,6 +93,7 @@ export async function POST(request: Request) {
     );
     const { generatedContent, relevantAssets } = await generateMomentContent({
       campaignGoal: parsed.data.campaignGoal,
+      platform: parsed.data.platform,
       formatGuide: [
         `名称：${product.contentFormat.name}`,
         `说明：${product.contentFormat.description || "无"}`,
@@ -117,6 +122,7 @@ export async function POST(request: Request) {
       },
       update: {
         title: parsed.data.campaignGoal,
+        platform: parsed.data.platform,
         campaignGoal: parsed.data.campaignGoal,
         contentFormatId: product.contentFormatId,
         productId: product.id,
@@ -125,6 +131,7 @@ export async function POST(request: Request) {
       },
       create: {
         title: parsed.data.campaignGoal,
+        platform: parsed.data.platform,
         campaignGoal: parsed.data.campaignGoal,
         contentFormatId: product.contentFormatId,
         productId: product.id,

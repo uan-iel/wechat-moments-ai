@@ -9,6 +9,7 @@ datasource db {
 
 model ContentFormat {
   id           String        @id @default(cuid())
+  platform     ContentPlatform @default(MOMENTS)
   name         String
   description  String?
   writingGuide String?
@@ -52,6 +53,7 @@ model ProductAsset {
 
 model ContentTask {
   id               String                 @id @default(cuid())
+  platform         ContentPlatform        @default(MOMENTS)
   title            String
   campaignGoal     String
   contentFormatId  String?
@@ -68,6 +70,7 @@ model ContentTask {
   @@index([contentFormatId])
   @@index([productId])
   @@index([status])
+  @@index([platform])
 }
 
 model ContentVersion {
@@ -111,6 +114,11 @@ model AppSetting {
 enum ProductAssetType {
   TEXT  @map("text")
   IMAGE @map("image")
+}
+
+enum ContentPlatform {
+  MOMENTS   @map("moments")
+  XIAOHONGSHU @map("xiaohongshu")
 }
 
 enum ContentTaskStatus {

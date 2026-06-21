@@ -1,18 +1,25 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
+import { normalizePlatform } from "@/lib/platforms";
 import { prisma } from "@/lib/prisma";
+import { removeProductAssetFile } from "@/lib/server/product-asset-files";
 
 export const dynamic = "force-dynamic";
 
 const contentFormatSchema = z.object({
+  platform: z.enum(["MOMENTS", "XIAOHONGSHU"]).default("MOMENTS"),
   name: z.string().min(1),
   description: z.string().optional(),
   writingGuide: z.string().optional()
 });
 
-export async function GET() {
+export async function GET(request: Request) {
+  const platform = normalizePlatform(new URL(request.url).searchParams.get("platform"));
   const contentFormats = await prisma.contentFormat.findMany({
+    where: {
+      platform
+    },
     orderBy: {
       updatedAt: "desc"
     },
@@ -45,6 +52,7 @@ export async function POST(request: Request) {
 
   const contentFormat = await prisma.contentFormat.create({
     data: {
+      platform: parsed.data.platform,
       name: parsed.data.name.trim(),
       description: parsed.data.description?.trim() || null,
       writingGuide: parsed.data.writingGuide?.trim() || null
@@ -71,7 +79,8 @@ export async function DELETE(request: Request) {
       }
     },
     select: {
-      id: true
+      id: true,
+      imageUrl: true
     }
   });
   const assetIds = new Set(assets.map((asset) => asset.id));
@@ -108,6 +117,8 @@ export async function DELETE(request: Request) {
       id
     }
   });
+
+  await Promise.all(assets.map((asset) => removeProductAssetFile(asset.imageUrl)));
 
   return NextResponse.json({ ok: true });
 }

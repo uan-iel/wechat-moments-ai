@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { prisma } from "@/lib/prisma";
+import { removeProductAssetFile } from "@/lib/server/product-asset-files";
 
 export const dynamic = "force-dynamic";
 
@@ -66,7 +67,8 @@ export async function DELETE(request: Request) {
       productId: id
     },
     select: {
-      id: true
+      id: true,
+      imageUrl: true
     }
   });
   const assetIds = new Set(assets.map((asset) => asset.id));
@@ -103,6 +105,8 @@ export async function DELETE(request: Request) {
       id
     }
   });
+
+  await Promise.all(assets.map((asset) => removeProductAssetFile(asset.imageUrl)));
 
   return NextResponse.json({ ok: true });
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { CheckSquare, ImageIcon, Loader2, Plus, Sparkles, Square, X } from "lucide-react";
@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { platformLabel, platformOptions, type ContentPlatformValue } from "@/lib/platforms";
 import { cn } from "@/lib/utils";
 
 type ProductAsset = {
@@ -31,6 +32,7 @@ type Product = {
 
 type ContentFormat = {
   id: string;
+  platform: ContentPlatformValue | "moments" | "xiaohongshu";
   name: string;
   description: string | null;
   writingGuide: string | null;
@@ -42,6 +44,7 @@ const defaultStyleTags = ["活泼", "简约", "网感", "温柔"];
 
 export function ContentFactory() {
   const router = useRouter();
+  const [platform, setPlatform] = useState<ContentPlatformValue>("MOMENTS");
   const [formats, setFormats] = useState<ContentFormat[]>([]);
   const [selectedFormatId, setSelectedFormatId] = useState("");
   const [selectedProductId, setSelectedProductId] = useState("");
@@ -63,8 +66,8 @@ export function ContentFactory() {
     [selectedFormat, selectedProductId]
   );
 
-  async function loadFormats() {
-    const response = await fetch("/api/content-formats", { cache: "no-store" });
+  const loadFormats = useCallback(async () => {
+    const response = await fetch(`/api/content-formats?platform=${platform}`, { cache: "no-store" });
     const payload = (await response.json()) as { contentFormats: ContentFormat[] };
     setFormats(payload.contentFormats);
     setSelectedFormatId((current) => current || payload.contentFormats[0]?.id || "");
@@ -74,11 +77,11 @@ export function ContentFactory() {
       );
       return stillExists ? current : payload.contentFormats[0]?.products[0]?.id || "";
     });
-  }
+  }, [platform]);
 
   useEffect(() => {
     void loadFormats();
-  }, []);
+  }, [loadFormats]);
 
   useEffect(() => {
     setSelectedAssetIds(selectedProduct?.assets.map((asset) => asset.id) ?? []);
@@ -133,6 +136,7 @@ export function ContentFactory() {
         },
         body: JSON.stringify({
           campaignGoal,
+          platform,
           contentFormatId: selectedFormatId,
           productId: selectedProductId,
           selectedAssetIds: assetIdsForGeneration,
@@ -168,9 +172,35 @@ export function ContentFactory() {
       <Card className="panel-card h-fit">
         <CardHeader>
           <CardTitle>选择生成对象</CardTitle>
-          <CardDescription>先选内容形式，再选该形式下的产品。</CardDescription>
+          <CardDescription>先选平台，再选该平台下的内容形式与产品。</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label>平台</Label>
+            <div className="grid grid-cols-2 gap-2">
+              {platformOptions.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => {
+                    setPlatform(option.value);
+                    setSelectedFormatId("");
+                    setSelectedProductId("");
+                    setMessage("");
+                  }}
+                  className={cn(
+                    "rounded-lg border px-3 py-2 text-sm font-medium transition",
+                    platform === option.value
+                      ? "border-primary bg-primary text-primary-foreground"
+                      : "border-slate-200 bg-white text-slate-700 hover:border-primary/40"
+                  )}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
           <div className="space-y-2">
             <Label htmlFor="contentFormat">内容形式</Label>
             <select
@@ -220,7 +250,7 @@ export function ContentFactory() {
             </div>
           ) : (
             <div className="rounded-xl bg-slate-50 p-4 text-sm leading-6 text-muted-foreground">
-              还没有可用产品。先去 <Link href="/formats" className="text-primary underline-offset-4 hover:underline">知识库</Link> 添加内容形式和产品。
+              这个平台下还没有可用产品。先去 <Link href="/formats" className="text-primary underline-offset-4 hover:underline">知识库</Link> 添加 {platformLabel(platform)} 的内容形式和产品。
             </div>
           )}
         </CardContent>
@@ -229,7 +259,7 @@ export function ContentFactory() {
       <div className="space-y-6">
         <Card className="panel-card">
           <CardHeader>
-            <CardTitle>生成朋友圈文案</CardTitle>
+            <CardTitle>生成{platformLabel(platform)}文案</CardTitle>
             <CardDescription>只使用你人工选取的产品图文素材；图片会被识别特征，但不会自动生成新图。</CardDescription>
           </CardHeader>
           <CardContent className="space-y-5">

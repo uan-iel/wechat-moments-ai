@@ -4,6 +4,7 @@ import { ChatPromptTemplate } from "@langchain/core/prompts";
 import { MemoryVectorStore } from "langchain/vectorstores/memory";
 
 import { createChatModel, createEmbeddingModel, getAiModelConfig } from "@/lib/ai/model-config";
+import { normalizePlatform } from "@/lib/platforms";
 
 export type ProductAssetForGeneration = {
   id: string;
@@ -29,18 +30,80 @@ const contentPrompt = ChatPromptTemplate.fromMessages([
   [
     "system",
     [
-      "你是一个专业的私域朋友圈原创文案写手。",
+      "你是一个专业的社交平台原创文案写手。",
       "你的首要目标不是改写历史素材，而是基于检索到的信号生成全新表达。",
       "铁律：检索素材只允许提取产品参数、使用场景和用户情绪这三类信息；必须使用与素材完全不同的句式结构和比喻方式来重写；严禁拼接、复述、仿写或套用原句。",
       "如果检索素材出现明显相似表达，你必须主动换角度、换结构、换节奏。",
-      "输出必须像一个真正原创的新朋友圈文案，而不是旧素材的整理版。"
+      "输出必须像一个真正原创的新平台文案，而不是旧素材的整理版。"
     ].join("\n")
   ],
   [
     "human",
-    "内容形式：\n{formatGuide}\n\n产品信息：\n{productInfo}\n\n已选素材与图片特征：\n{assetContent}\n\n文案目标：{campaignGoal}\n\n生成控制：\n- 字数区间：{wordCountRange} 字\n- 风格标签：{styleInstruction}\n\n要求：\n1. 文案适合朋友圈手动发布，语气自然可信。\n2. 必须结合产品卖点和图片特征，不要凭空编造未提供的信息。\n3. 如果图片分析里有外观、材质、场景、质感等特征，要把精华自然融入文案。\n4. 必须严格对标风格标签；多个标签同时存在时要融合，而不是分段解释。\n5. 字数必须落在指定区间内，不要明显超出或低于范围。\n6. 可适度使用 emoji，但不要堆砌。\n7. 包含一个温和的行动引导。\n8. 只输出正文，不解释创作过程。"
+    "目标平台：{platformLabel}\n平台要求：\n{platformInstruction}\n\n内容形式：\n{formatGuide}\n\n产品信息：\n{productInfo}\n\n已选素材与图片特征：\n{assetContent}\n\n文案目标：{campaignGoal}\n\n生成控制：\n- 字数区间：{wordCountRange} 字\n- 风格标签：{styleInstruction}\n\n要求：\n1. 文案必须适合目标平台手动发布，语气自然可信。\n2. 必须结合产品卖点和图片特征，不要凭空编造未提供的信息。\n3. 如果图片分析里有外观、材质、场景、质感等特征，要把精华自然融入文案。\n4. 必须严格对标风格标签；多个标签同时存在时要融合，而不是分段解释。\n5. 字数必须落在指定区间内，不要明显超出或低于范围。\n6. 可适度使用 emoji，但不要堆砌。\n7. 包含一个温和的行动引导。\n8. 只输出正文，不解释创作过程。"
   ]
 ]);
+
+const xiaohongshuTitlePrompt = ChatPromptTemplate.fromMessages([
+  [
+    "system",
+    [
+      "你是一个擅长小红书笔记标题的内容策划。",
+      "你只能输出 1 行标题，不要输出正文、序号、引号、解释或标签。",
+      "标题要有记忆点、场景感或结果感，但不能夸张、不能像硬广、不能标题党。"
+    ].join("\n")
+  ],
+  [
+    "human",
+    "内容形式：\n{formatGuide}\n\n产品信息：\n{productInfo}\n\n素材信号：\n{assetContent}\n\n文案目标：{campaignGoal}\n\n风格标签：\n{styleInstruction}\n\n请为这篇小红书图文笔记写一个标题，控制在 12 到 24 个汉字之间，只输出标题。"
+  ]
+]);
+
+function buildPlatformInstruction(platform?: "MOMENTS" | "XIAOHONGSHU") {
+  if (normalizePlatform(platform) === "XIAOHONGSHU") {
+    return [
+      "适合小红书图文笔记：开头要更抓人，但不能夸张到像硬广或标题党。",
+      "建议使用“短标题感开头 + 2 到 4 段正文”的组织方式，段落不要太厚。",
+      "正文要有体验感、场景感和种草感，让读者能迅速代入“这东西适不适合我”。",
+      "自然埋入 3 到 6 个高价值关键词，优先来自品类、材质、使用场景、核心卖点、情绪感受，不要堆 hashtag。",
+      "结尾更适合用轻互动、轻收藏、轻询问式收尾，比如引导评论、收藏或私聊了解。",
+      "允许有一点平台网感，但不要生硬追热点。"
+    ].join("\n");
+  }
+
+  return [
+    "适合朋友圈发布：像真实人在日常分享，不要像正式广告。",
+    "整体更自然、更连贯，避免标题党和刻意分段感。",
+    "重点是可信、顺口、像熟人之间会发出来的内容。"
+  ].join("\n");
+}
+
+function parseWordCountRange(range?: string) {
+  const match = range?.match(/(\d+)\s*-\s*(\d+)/);
+
+  if (!match) {
+    return { min: 150, max: 250 };
+  }
+
+  return {
+    min: Number(match[1]),
+    max: Number(match[2])
+  };
+}
+
+function deriveBodyWordCountRange(range?: string) {
+  const { min, max } = parseWordCountRange(range);
+  const reducedMin = Math.max(40, min - 20);
+  const reducedMax = Math.max(reducedMin + 20, max - 20);
+
+  return `${reducedMin}-${reducedMax}`;
+}
+
+function combineXiaohongshuContent(title: string, body: string) {
+  const cleanTitle = title.trim().replace(/^["'“”‘’#\s]+|["'“”‘’#\s]+$/g, "");
+  const cleanBody = body.trim();
+
+  return cleanTitle ? `${cleanTitle}\n\n${cleanBody}` : cleanBody;
+}
 
 function assetToDocument(item: ProductAssetForGeneration) {
   return new Document({
@@ -315,6 +378,7 @@ function buildStyleInstruction(styleTags: string[]) {
 }
 
 export async function generateMomentContent(input: {
+  platform?: "MOMENTS" | "XIAOHONGSHU";
   campaignGoal: string;
   formatGuide: string;
   productInfo: string;
@@ -332,14 +396,34 @@ export async function generateMomentContent(input: {
     .join("\n\n---\n\n");
   const model = await createChatModel({ temperature: 0.75 });
   const chain = contentPrompt.pipe(model).pipe(new StringOutputParser());
-  const generatedContent = await chain.invoke({
+  const platform = normalizePlatform(input.platform);
+  const basePromptInput = {
+    platformLabel: normalizePlatform(input.platform) === "XIAOHONGSHU" ? "小红书" : "朋友圈",
+    platformInstruction: buildPlatformInstruction(input.platform),
     campaignGoal: input.campaignGoal,
     formatGuide: input.formatGuide,
     productInfo: input.productInfo,
     assetContent,
     wordCountRange: input.wordCountRange || "150-250",
     styleInstruction: buildStyleInstruction(input.styleTags ?? [])
+  };
+  const generatedBody = await chain.invoke({
+    ...basePromptInput,
+    wordCountRange: platform === "XIAOHONGSHU" ? deriveBodyWordCountRange(input.wordCountRange) : (input.wordCountRange || "150-250")
   });
+  let generatedContent = generatedBody;
+
+  if (platform === "XIAOHONGSHU") {
+    const titleChain = xiaohongshuTitlePrompt.pipe(model).pipe(new StringOutputParser());
+    const generatedTitle = await titleChain.invoke({
+      formatGuide: input.formatGuide,
+      productInfo: input.productInfo,
+      assetContent,
+      campaignGoal: input.campaignGoal,
+      styleInstruction: buildStyleInstruction(input.styleTags ?? [])
+    });
+    generatedContent = combineXiaohongshuContent(generatedTitle, generatedBody);
+  }
 
   return {
     generatedContent,

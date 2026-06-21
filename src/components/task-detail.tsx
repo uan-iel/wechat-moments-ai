@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { platformLabel, type ContentPlatformValue } from "@/lib/platforms";
 import { cn } from "@/lib/utils";
 
 type ContentVersion = {
@@ -23,6 +24,7 @@ type ContentVersion = {
 
 type TaskPayload = {
   id: string;
+  platform: ContentPlatformValue | "moments" | "xiaohongshu";
   title: string;
   campaignGoal: string;
   status: "DRAFT" | "FINALIZED" | "FAILED" | "draft" | "finalized" | "failed";
@@ -300,9 +302,12 @@ export function TaskDetail({ taskId }: { taskId: string }) {
     <div className="grid gap-6 xl:grid-cols-[18rem_1fr]">
       <Card className="panel-card h-fit">
         <CardHeader>
-          <Badge className="w-fit bg-slate-100 text-slate-700 hover:bg-slate-100">
-            {statusLabel[task.status]}
-          </Badge>
+          <div className="flex flex-wrap gap-2">
+            <Badge variant="outline">{platformLabel(task.platform)}</Badge>
+            <Badge className="w-fit bg-slate-100 text-slate-700 hover:bg-slate-100">
+              {statusLabel[task.status]}
+            </Badge>
+          </div>
           <CardTitle>{task.title}</CardTitle>
           <CardDescription>
             内容形式：{task.contentFormat?.name || "未选择"} · 产品：{task.product?.name || "未选择"}

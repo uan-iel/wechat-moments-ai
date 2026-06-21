@@ -42,7 +42,7 @@ const maxWidthClasses = {
 };
 
 export function AppShell({
-  eyebrow = "WeChat Moments AI",
+  eyebrow = "Social Content AI",
   title,
   description,
   children,
@@ -60,8 +60,8 @@ export function AppShell({
               <Bot className="size-5" aria-hidden="true" />
             </span>
             <span>
-              <span className="block text-sm font-semibold leading-5">Moments AI</span>
-              <span className="block text-xs text-muted-foreground">私域朋友圈助手</span>
+              <span className="block text-sm font-semibold leading-5">Content AI</span>
+              <span className="block text-xs text-muted-foreground">朋友圈 / 小红书内容助手</span>
             </span>
           </Link>
 
@@ -88,9 +88,9 @@ export function AppShell({
           <div className="absolute inset-x-4 bottom-4 rounded-xl border border-emerald-100 bg-emerald-50/80 p-3 text-xs leading-5 text-emerald-950">
             <div className="mb-1 flex items-center gap-2 font-semibold">
               <Sparkles className="size-4" aria-hidden="true" />
-              本地文案闭环
+              本地内容闭环
             </div>
-            内容形式、产品素材、图片分析和多版本改写都在本地完成。
+            朋友圈与小红书共用模型配置，知识库和任务按平台分开管理。
           </div>
         </aside>
 

@@ -2,6 +2,7 @@ import { PublishCalendarStatus } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
+import { normalizePlatform } from "@/lib/platforms";
 import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
@@ -14,8 +15,16 @@ const calendarEntrySchema = z.object({
   note: z.string().optional()
 });
 
-export async function GET() {
+export async function GET(request: Request) {
+  const platform = new URL(request.url).searchParams.get("platform");
   const entries = await prisma.publishCalendarEntry.findMany({
+    where: platform
+      ? {
+          task: {
+            platform: normalizePlatform(platform)
+          }
+        }
+      : undefined,
     orderBy: {
       plannedDate: "asc"
     },
@@ -31,6 +40,7 @@ export async function GET() {
       task: {
         select: {
           id: true,
+          platform: true,
           title: true,
           campaignGoal: true,
           status: true,
@@ -50,11 +60,17 @@ export async function GET() {
     }
   });
   const tasks = await prisma.contentTask.findMany({
+    where: platform
+      ? {
+          platform: normalizePlatform(platform)
+        }
+      : undefined,
     orderBy: {
       updatedAt: "desc"
     },
     select: {
       id: true,
+      platform: true,
       title: true,
       status: true,
       versions: {

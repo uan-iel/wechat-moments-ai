@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { CalendarDays, Plus, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { platformLabel, platformOptions, type ContentPlatformValue } from "@/lib/platforms";
 
 type CalendarEntry = {
   id: string;
@@ -16,12 +17,14 @@ type CalendarEntry = {
   status: "PLANNED" | "POSTED" | "planned" | "posted";
   note: string | null;
   task: {
+    platform: ContentPlatformValue | "moments" | "xiaohongshu";
     title: string;
   };
 };
 
 type TaskOption = {
   id: string;
+  platform: ContentPlatformValue | "moments" | "xiaohongshu";
   title: string;
   versions: Array<{
     id: string;
@@ -39,6 +42,7 @@ function toDayKey(value: string | Date) {
 }
 
 export function PublishCalendar() {
+  const [platform, setPlatform] = useState<ContentPlatformValue>("MOMENTS");
   const [entries, setEntries] = useState<CalendarEntry[]>([]);
   const [tasks, setTasks] = useState<TaskOption[]>([]);
   const [taskId, setTaskId] = useState("");
@@ -69,17 +73,17 @@ export function PublishCalendar() {
     }, {});
   }, [entries]);
 
-  async function loadCalendar() {
-    const response = await fetch("/api/publish-calendar", { cache: "no-store" });
+  const loadCalendar = useCallback(async () => {
+    const response = await fetch(`/api/publish-calendar?platform=${platform}`, { cache: "no-store" });
     const payload = (await response.json()) as { entries: CalendarEntry[]; tasks: TaskOption[] };
     setEntries(payload.entries);
     setTasks(payload.tasks);
     setTaskId((current) => current || payload.tasks[0]?.id || "");
-  }
+  }, [platform]);
 
   useEffect(() => {
     void loadCalendar();
-  }, []);
+  }, [loadCalendar]);
 
   useEffect(() => {
     const finalVersion = selectedTask?.versions.find((version) => version.isFinal);
@@ -139,9 +143,28 @@ export function PublishCalendar() {
       <Card className="panel-card h-fit">
         <CardHeader>
           <CardTitle>标记发布记录</CardTitle>
-          <CardDescription>这里只做备忘，不会触发任何自动发布。</CardDescription>
+          <CardDescription>朋友圈和小红书共用一个日历，这里只做备忘，不会触发任何自动发布。</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label>平台</Label>
+            <div className="grid grid-cols-2 gap-2">
+              {platformOptions.map((option) => (
+                <Button
+                  key={option.value}
+                  type="button"
+                  variant={platform === option.value ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => {
+                    setPlatform(option.value);
+                    setMessage("");
+                  }}
+                >
+                  {option.label}
+                </Button>
+              ))}
+            </div>
+          </div>
           <div className="space-y-2">
             <Label htmlFor="taskId">文案任务</Label>
             <select
@@ -233,6 +256,7 @@ export function PublishCalendar() {
                           </button>
                         </div>
                         <p className="mt-1 text-[11px] text-muted-foreground">
+                          {platformLabel(entry.task.platform)} ·{" "}
                           {String(entry.status).toUpperCase() === "POSTED" ? "已发布" : "计划发布"}
                         </p>
                       </div>

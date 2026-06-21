@@ -15,8 +15,8 @@ const shortcuts = [
   {
     href: "/content-factory",
     icon: Factory,
-    title: "生成朋友圈文案",
-    description: "选择产品和图片素材，一键生成适合手工发布的草稿。"
+    title: "生成平台文案",
+    description: "选择朋友圈或小红书，再基于产品和图片素材生成草稿。"
   },
   {
     href: "/tasks",
@@ -37,8 +37,8 @@ export const dynamic = "force-dynamic";
 export default function Home() {
   return (
     <AppShell
-      title="本地 AI 朋友圈文案工作台"
-      description="去掉企微连接与自动发布，保留内容形式、产品素材、图片分析、AI 生成、多版本定稿和手工发布记录。"
+      title="本地 AI 内容工作台"
+      description="支持朋友圈与小红书两套知识库和生成流程，共用模型配置、任务管理与发布日历。"
       maxWidth="7xl"
       actions={
         <Link
@@ -82,8 +82,8 @@ export default function Home() {
           </CardHeader>
           <CardContent className="space-y-3 text-sm leading-6 text-muted-foreground">
             <p>不再扫码、不保存企微密钥、不自动发布。</p>
-            <p>最终文案会在任务详情里定稿并复制，用户手动发到企微、微信或其他平台。</p>
-            <p>发布日历只做备忘记录，不触发任何外部 API。</p>
+            <p>最终文案会在任务详情里定稿并复制，用户手动发到朋友圈、小红书或其他平台。</p>
+            <p>发布日历只做备忘记录，可分别标记朋友圈或小红书。</p>
           </CardContent>
         </Card>
       </div>

@@ -1,16 +1,24 @@
 import { NextResponse } from "next/server";
 
+import { normalizePlatform } from "@/lib/platforms";
 import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(request: Request) {
+  const platform = new URL(request.url).searchParams.get("platform");
   const contentTasks = await prisma.contentTask.findMany({
+    where: platform
+      ? {
+          platform: normalizePlatform(platform)
+        }
+      : undefined,
     orderBy: {
       updatedAt: "desc"
     },
     select: {
       id: true,
+      platform: true,
       title: true,
       campaignGoal: true,
       status: true,
