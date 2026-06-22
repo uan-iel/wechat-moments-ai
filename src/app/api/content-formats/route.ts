@@ -23,15 +23,28 @@ export async function GET(request: Request) {
     orderBy: {
       updatedAt: "desc"
     },
-    include: {
+    select: {
+      id: true,
+      platform: true,
+      name: true,
+      description: true,
+      createdAt: true,
+      updatedAt: true,
       products: {
         orderBy: {
           updatedAt: "desc"
         },
-        include: {
-          assets: {
-            orderBy: {
-              updatedAt: "desc"
+        select: {
+          id: true,
+          contentFormatId: true,
+          name: true,
+          description: true,
+          sellingPoints: true,
+          createdAt: true,
+          updatedAt: true,
+          _count: {
+            select: {
+              assets: true
             }
           }
         }

@@ -4,7 +4,9 @@ import { z } from "zod";
 
 import { analyzeProductImage } from "@/lib/ai/image-analyzer";
 import { generateMomentContent } from "@/lib/ai/content-generator";
+import { buildResearchMemory } from "@/lib/ai/research-memory";
 import { prisma } from "@/lib/prisma";
+import { normalizePlatform } from "@/lib/platforms";
 
 const generateContentSchema = z.object({
   contentTaskId: z.string().min(1).optional(),
@@ -26,7 +28,7 @@ function formatProductInfo(product: {
   return [
     `产品名称：${product.name}`,
     `产品说明：${product.description || "无"}`,
-    `核心卖点：${product.sellingPoints.join("、") || "无"}`
+    `产品关键词：${product.sellingPoints.join("、") || "无"}`
   ].join("\n");
 }
 
@@ -65,10 +67,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Product not found" }, { status: 404 });
     }
 
-    if (product.assets.length === 0) {
-      return NextResponse.json({ error: "这个产品还没有可用于生成的素材，请先到知识库添加文本或图片素材。" }, { status: 422 });
-    }
-
     const assets = await Promise.all(
       product.assets.map(async (asset) => {
         if (asset.type !== ProductAssetType.IMAGE || !asset.imageUrl || asset.imageAnalysis) {
@@ -92,6 +90,15 @@ export async function POST(request: Request) {
         });
       })
     );
+    const researchMemory =
+      normalizePlatform(parsed.data.platform) === "XIAOHONGSHU"
+        ? await buildResearchMemory({
+            platform: parsed.data.platform,
+            contentFormatName: product.contentFormat.name,
+            productName: product.name,
+            productKeywords: product.sellingPoints
+          })
+        : "无需加载研究洞察：这部分研究记忆只提供给小红书生成模块，朋友圈模块禁止读取。";
     const { generatedContent, relevantAssets } = await generateMomentContent({
       campaignGoal: parsed.data.campaignGoal,
       platform: parsed.data.platform,
@@ -101,6 +108,7 @@ export async function POST(request: Request) {
         `写作要求：${product.contentFormat.writingGuide || "无"}`
       ].join("\n"),
       productInfo: formatProductInfo(product),
+      researchMemory,
       referenceStyleId: parsed.data.referenceStyleId,
       wordCountRange: parsed.data.wordCountRange,
       styleTags: parsed.data.styleTags.map((tag) => tag.trim()).filter(Boolean),

@@ -12,7 +12,6 @@ const app = {
   routes: [
     { name: "首页", url: "http://localhost:3100" },
     { name: "内容工厂", url: "http://localhost:3100/content-factory" },
-    { name: "知识库", url: "http://localhost:3100/formats" },
     { name: "文案任务", url: "http://localhost:3100/tasks" },
     { name: "发布日历", url: "http://localhost:3100/calendar" },
     { name: "模型设置", url: "http://localhost:3100/settings" }

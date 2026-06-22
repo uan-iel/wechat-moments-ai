@@ -10,6 +10,9 @@ coverage
 *.tsbuildinfo
 prisma/dev.db
 .DS_Store
+.crawler/
+.local-memory/
+local-memory-export/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*

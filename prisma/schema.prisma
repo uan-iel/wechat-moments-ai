@@ -104,6 +104,85 @@ model PublishCalendarEntry {
   @@index([taskId])
 }
 
+model ResearchCollection {
+  id          String           @id @default(cuid())
+  platform    ContentPlatform  @default(XIAOHONGSHU)
+  name        String
+  sourceType  String
+  sourceQuery String?
+  description String?
+  notes       ResearchNote[]
+  insights    ResearchInsight[]
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  @@index([platform])
+}
+
+model ResearchNote {
+  id           String             @id @default(cuid())
+  collectionId String
+  collection   ResearchCollection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  externalId   String?
+  title        String?
+  content      String
+  authorName   String?
+  authorHandle String?
+  noteUrl      String?
+  publishedAt  DateTime?
+  keywords     String[]           @default([])
+  likeCount    Int?
+  commentCount Int?
+  collectCount Int?
+  shareCount   Int?
+  viewCount    Int?
+  rawPayload   Json?
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+
+  @@index([collectionId])
+  @@index([externalId])
+  @@index([publishedAt])
+}
+
+model ResearchInsight {
+  id              String              @id @default(cuid())
+  collectionId    String?
+  collection      ResearchCollection? @relation(fields: [collectionId], references: [id], onDelete: SetNull)
+  platform        ContentPlatform     @default(XIAOHONGSHU)
+  scopeKey        String?
+  title           String
+  summary         String
+  recommendations String?
+  topKeywords     String[]            @default([])
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  @@index([platform])
+  @@index([scopeKey])
+}
+
+model ResearchCrawlJob {
+  id             String              @id @default(cuid())
+  platform       ContentPlatform     @default(XIAOHONGSHU)
+  collectionName String
+  query          String?
+  creatorIds     String[]            @default([])
+  crawlerType    ResearchCrawlerType @default(SEARCH)
+  status         ResearchCrawlStatus @default(PENDING)
+  notesImported  Int?
+  sourceFilePath String?
+  errorMessage   String?
+  startedAt      DateTime?
+  finishedAt     DateTime?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  @@index([platform])
+  @@index([status])
+  @@index([createdAt])
+}
+
 model AppSetting {
   key       String   @id
   value     String
@@ -130,4 +209,17 @@ enum ContentTaskStatus {
 enum PublishCalendarStatus {
   PLANNED @map("planned")
   POSTED  @map("posted")
+}
+
+enum ResearchCrawlerType {
+  SEARCH  @map("search")
+  CREATOR @map("creator")
+}
+
+enum ResearchCrawlStatus {
+  PENDING   @map("pending")
+  RUNNING   @map("running")
+  IMPORTING @map("importing")
+  COMPLETED @map("completed")
+  FAILED    @map("failed")
 }

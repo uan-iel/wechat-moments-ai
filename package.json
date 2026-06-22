@@ -1,6 +1,6 @@
 {
   "name": "wechat-moments-ai",
-  "version": "2.0.3",
+  "version": "2.0.4",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -9,6 +9,10 @@
     "lint": "next lint",
     "dev:panel": "node scripts/register-and-start.js",
     "dev:panel:install": "node scripts/install-dev-dashboard-entry.js",
+    "worker:xhs:install": "node scripts/setup-xhs-worker.js",
+    "memory:import": "node scripts/import-local-memory.js",
+    "memory:export": "node scripts/export-local-memory.js",
+    "research:import:xhs": "node scripts/import-xiaohongshu-research.js",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio"

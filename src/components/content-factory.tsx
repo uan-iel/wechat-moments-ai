@@ -1,9 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { CheckSquare, ImageIcon, Loader2, Plus, Sparkles, Square, X } from "lucide-react";
+import { Loader2, Plus, Sparkles, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -28,7 +27,9 @@ type Product = {
   name: string;
   description: string | null;
   sellingPoints: string[];
-  assets: ProductAsset[];
+  _count?: {
+    assets: number;
+  };
 };
 
 type ContentFormat = {
@@ -49,7 +50,6 @@ export function ContentFactory() {
   const [formats, setFormats] = useState<ContentFormat[]>([]);
   const [selectedFormatId, setSelectedFormatId] = useState("");
   const [selectedProductId, setSelectedProductId] = useState("");
-  const [selectedAssetIds, setSelectedAssetIds] = useState<string[]>([]);
   const [campaignGoal, setCampaignGoal] = useState("");
   const [referenceStyleId, setReferenceStyleId] = useState("auto");
   const [wordCountRange, setWordCountRange] = useState<(typeof wordCountOptions)[number]>("150-250");
@@ -67,6 +67,7 @@ export function ContentFactory() {
     () => selectedFormat?.products.find((product) => product.id === selectedProductId) ?? null,
     [selectedFormat, selectedProductId]
   );
+  const memoryCount = selectedProduct?._count?.assets ?? 0;
   const referenceOptions = platform === "MOMENTS" ? MOMENTS_REFERENCE_OPTIONS : XIAOHONGSHU_REFERENCE_OPTIONS;
 
   const loadFormats = useCallback(async () => {
@@ -85,16 +86,6 @@ export function ContentFactory() {
   useEffect(() => {
     void loadFormats();
   }, [loadFormats]);
-
-  useEffect(() => {
-    setSelectedAssetIds(selectedProduct?.assets.map((asset) => asset.id) ?? []);
-  }, [selectedProduct]);
-
-  function toggleAsset(id: string) {
-    setSelectedAssetIds((current) =>
-      current.includes(id) ? current.filter((item) => item !== id) : current.concat(id)
-    );
-  }
 
   function toggleStyleTag(tag: string) {
     setSelectedStyleTags((current) =>
@@ -120,17 +111,8 @@ export function ContentFactory() {
       return;
     }
 
-    if (!selectedProduct?.assets.length) {
-      setMessage("这个产品还没有素材，先去知识库添加文本或图片素材。");
-      return;
-    }
-
-    const assetIdsForGeneration = selectedAssetIds.length
-      ? selectedAssetIds
-      : selectedProduct.assets.map((asset) => asset.id);
-
     setBusy(true);
-    setMessage("正在生成。如果有未分析的图片，系统会先识别图片特征。");
+    setMessage("正在读取本地文案记忆并生成草稿。");
     try {
       const response = await fetch("/api/generate-content", {
         method: "POST",
@@ -142,7 +124,6 @@ export function ContentFactory() {
           platform,
           contentFormatId: selectedFormatId,
           productId: selectedProductId,
-          selectedAssetIds: assetIdsForGeneration,
           referenceStyleId,
           wordCountRange,
           styleTags: selectedStyleTags
@@ -161,14 +142,6 @@ export function ContentFactory() {
     } finally {
       setBusy(false);
     }
-  }
-
-  function selectAllAssets() {
-    setSelectedAssetIds(selectedProduct?.assets.map((asset) => asset.id) ?? []);
-  }
-
-  function clearSelectedAssets() {
-    setSelectedAssetIds([]);
   }
 
   return (
@@ -249,12 +222,15 @@ export function ContentFactory() {
               <p className="font-semibold text-slate-950">{selectedProduct.name}</p>
               <p className="mt-1">{selectedProduct.description || "暂无产品说明"}</p>
               {selectedProduct.sellingPoints.length ? (
-                <p className="mt-2">卖点：{selectedProduct.sellingPoints.join(" / ")}</p>
+                <p className="mt-2">关键词：{selectedProduct.sellingPoints.join(" / ")}</p>
               ) : null}
+              <p className="mt-2 text-xs text-slate-500">
+                本地记忆素材：{memoryCount} 条，生成时由后端自动读取。
+              </p>
             </div>
           ) : (
             <div className="rounded-xl bg-slate-50 p-4 text-sm leading-6 text-muted-foreground">
-              这个平台下还没有可用产品。先去 <Link href="/formats" className="text-primary underline-offset-4 hover:underline">知识库</Link> 添加 {platformLabel(platform)} 的内容形式和产品。
+              这个平台下还没有可用产品。请先通过本地记忆导入脚本写入 {platformLabel(platform)} 的内容形式和产品。
             </div>
           )}
         </CardContent>
@@ -264,7 +240,7 @@ export function ContentFactory() {
         <Card className="panel-card">
           <CardHeader>
             <CardTitle>生成{platformLabel(platform)}文案</CardTitle>
-            <CardDescription>只使用你人工选取的产品图文素材；图片会被识别特征，但不会自动生成新图。</CardDescription>
+            <CardDescription>系统会自动读取本地数据库中的分类文案记忆、产品关键词和图片分析结果。</CardDescription>
           </CardHeader>
           <CardContent className="space-y-5">
             <div className="space-y-2">
@@ -378,76 +354,10 @@ export function ContentFactory() {
               </div>
             ) : null}
 
-            <div className="space-y-3">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <Label>选择图文素材</Label>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    默认使用当前产品的全部素材；也可以手动取消不需要的素材。
-                  </p>
-                </div>
-                {selectedProduct?.assets.length ? (
-                  <div className="flex gap-2">
-                    <Button type="button" variant="outline" size="sm" onClick={selectAllAssets}>
-                      <CheckSquare className="mr-2 size-4" aria-hidden="true" />
-                      全选
-                    </Button>
-                    <Button type="button" variant="outline" size="sm" onClick={clearSelectedAssets}>
-                      <Square className="mr-2 size-4" aria-hidden="true" />
-                      清空
-                    </Button>
-                  </div>
-                ) : null}
-              </div>
-              <div className="grid gap-3 md:grid-cols-2">
-                {selectedProduct?.assets.map((asset) => {
-                  const selected = selectedAssetIds.includes(asset.id);
-                  const isImage = String(asset.type).toUpperCase() === "IMAGE";
-
-                  return (
-                    <button
-                      key={asset.id}
-                      type="button"
-                      onClick={() => toggleAsset(asset.id)}
-                      className={cn(
-                        "rounded-xl border bg-white p-4 text-left transition",
-                        selected ? "border-primary ring-2 ring-primary/20" : "border-slate-200 hover:border-slate-300"
-                      )}
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <p className="font-medium text-slate-950">{asset.title || "未命名素材"}</p>
-                        {isImage ? <ImageIcon className="size-4 text-primary" aria-hidden="true" /> : null}
-                      </div>
-                      <p className="mt-2 line-clamp-3 whitespace-pre-wrap text-sm leading-6 text-muted-foreground">
-                        {asset.content || asset.imageUrl || "暂无内容"}
-                      </p>
-                      {asset.imageAnalysis ? (
-                        <p className="mt-3 line-clamp-3 rounded-lg bg-emerald-50 p-3 text-xs leading-5 text-emerald-900">
-                          {asset.imageAnalysis}
-                        </p>
-                      ) : isImage ? (
-                        <p className="mt-3 rounded-lg bg-amber-50 p-3 text-xs leading-5 text-amber-900">
-                          生成时会自动分析这张图片的产品特征。
-                        </p>
-                      ) : null}
-                      {asset.tags.length ? (
-                        <p className="mt-3 text-xs text-muted-foreground">{asset.tags.join(" / ")}</p>
-                      ) : null}
-                    </button>
-                  );
-                })}
-              </div>
-              {selectedProduct && selectedProduct.assets.length === 0 ? (
-                <p className="rounded-lg bg-slate-50 p-4 text-sm text-muted-foreground">
-                  这个产品还没有素材，先去知识库添加文本或图片素材。
-                </p>
-              ) : null}
-            </div>
-
             {message ? <p className="rounded-lg bg-slate-50 p-3 text-sm text-muted-foreground">{message}</p> : null}
-            <Button type="button" onClick={generateContent} disabled={busy || !selectedProduct?.assets.length} className="w-full">
+            <Button type="button" onClick={generateContent} disabled={busy || !selectedProduct} className="w-full">
               {busy ? <Loader2 className="mr-2 size-4 animate-spin" aria-hidden="true" /> : <Sparkles className="mr-2 size-4" aria-hidden="true" />}
-              {selectedProduct?.assets.length ? "生成并创建任务" : "请先添加素材"}
+              生成并创建任务
             </Button>
           </CardContent>
         </Card>

@@ -21,13 +21,16 @@ const stateIcon = {
 };
 
 export async function ReadinessPanel() {
-  const [modelSettings, formatCount, productCount, assetCount, draftCount, finalizedCount] = await Promise.all([
+  const [modelSettings, formatCount, productCount, assetCount, draftCount, finalizedCount, researchCollectionCount, researchNoteCount, researchInsightCount] = await Promise.all([
     getAiModelSettingsForClient(),
     prisma.contentFormat.count(),
     prisma.product.count(),
     prisma.productAsset.count(),
     prisma.contentTask.count({ where: { status: ContentTaskStatus.DRAFT } }),
-    prisma.contentTask.count({ where: { status: ContentTaskStatus.FINALIZED } })
+    prisma.contentTask.count({ where: { status: ContentTaskStatus.FINALIZED } }),
+    prisma.researchCollection.count(),
+    prisma.researchNote.count(),
+    prisma.researchInsight.count()
   ]);
   const modelReady = Boolean(modelSettings.llm.hasApiKey || process.env.OPENAI_API_KEY || process.env.DEEPSEEK_API_KEY);
   const items = [
@@ -44,14 +47,22 @@ export async function ReadinessPanel() {
       state: formatCount > 0 ? "ready" : "todo"
     },
     {
-      label: "产品与素材",
-      detail: productCount > 0 ? `${productCount} 个产品，${assetCount} 条素材` : "添加产品和产品下的图文素材",
+      label: "产品与记忆",
+      detail: productCount > 0 ? `${productCount} 个产品，${assetCount} 条本地记忆` : "通过本地导入写入产品和文案记忆",
       state: productCount > 0 && assetCount > 0 ? "ready" : "todo"
     },
     {
       label: "文案任务",
       detail: `${draftCount} 个草稿，${finalizedCount} 个已定稿`,
       state: draftCount + finalizedCount > 0 ? "ready" : "todo"
+    },
+    {
+      label: "小红书研究",
+      detail:
+        researchCollectionCount > 0
+          ? `${researchCollectionCount} 个研究集合，${researchNoteCount} 条样本，${researchInsightCount} 条洞察`
+          : "先导入小红书抓取结果，再生成研究洞察",
+      state: researchCollectionCount > 0 ? "ready" : "todo"
     }
   ] satisfies Array<{ label: string; detail: string; state: ReadinessState }>;
 
@@ -60,7 +71,7 @@ export async function ReadinessPanel() {
       <CardHeader>
         <CardTitle>本地生产状态</CardTitle>
       </CardHeader>
-      <CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+      <CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
         {items.map((item) => {
           const Icon = stateIcon[item.state];
 

@@ -9,7 +9,7 @@ import {
   CheckSquare,
   Factory,
   Home,
-  MessageSquareText,
+  LibraryBig,
   Settings,
   Sparkles
 } from "lucide-react";
@@ -19,7 +19,7 @@ import { cn } from "@/lib/utils";
 const navItems = [
   { href: "/", label: "总览", icon: Home },
   { href: "/content-factory", label: "内容工厂", icon: Factory },
-  { href: "/formats", label: "知识库", icon: MessageSquareText },
+  { href: "/research/xiaohongshu", label: "小红书研究", icon: LibraryBig },
   { href: "/tasks", label: "文案任务", icon: CheckSquare },
   { href: "/calendar", label: "发布日历", icon: CalendarDays },
   { href: "/settings", label: "模型设置", icon: Settings }
@@ -90,7 +90,7 @@ export function AppShell({
               <Sparkles className="size-4" aria-hidden="true" />
               本地内容闭环
             </div>
-            朋友圈与小红书共用模型配置，知识库和任务按平台分开管理。
+            朋友圈与小红书共用模型配置，文案记忆只保存在本地数据库。
           </div>
         </aside>
 

@@ -3,7 +3,10 @@ import { prisma } from "@/lib/prisma";
 export const SETTINGS_KEYS = {
   aiModelConfig: "ai.modelConfig",
   aiModelEndpoints: "ai.modelEndpoints",
-  aiApiKey: "ai.apiKey"
+  aiApiKey: "ai.apiKey",
+  researchXhsMediaCrawlerPath: "research.xhs.mediaCrawler.path",
+  researchXhsMediaCrawlerBaseUrl: "research.xhs.mediaCrawler.baseUrl",
+  researchXhsMediaCrawlerStartCommand: "research.xhs.mediaCrawler.startCommand"
 } as const;
 
 export async function getAppSetting(key: string) {

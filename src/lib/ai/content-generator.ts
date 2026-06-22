@@ -35,12 +35,13 @@ const contentPrompt = ChatPromptTemplate.fromMessages([
       "你的首要目标不是改写历史素材，而是基于检索到的信号生成全新表达。",
       "铁律：检索素材只允许提取产品参数、使用场景和用户情绪这三类信息；必须使用与素材完全不同的句式结构和比喻方式来重写；严禁拼接、复述、仿写或套用原句。",
       "如果检索素材出现明显相似表达，你必须主动换角度、换结构、换节奏。",
+      "如果提供了外部平台研究洞察，只能吸收其中的选题逻辑、结构规律和情绪路径，不能模仿任何具体措辞。",
       "输出必须像一个真正原创的新平台文案，而不是旧素材的整理版。"
     ].join("\n")
   ],
   [
     "human",
-    "目标平台：{platformLabel}\n平台要求：\n{platformInstruction}\n\n平台底层文风记忆：\n{platformStyleMemory}\n\n本次参考文案倾向：\n{referenceInstruction}\n\n内容形式：\n{formatGuide}\n\n产品信息：\n{productInfo}\n\n已选素材与图片特征：\n{assetContent}\n\n文案目标：{campaignGoal}\n\n生成控制：\n- 字数区间：{wordCountRange} 字\n- 风格标签：{styleInstruction}\n\n要求：\n1. 文案必须适合目标平台手动发布，语气自然可信。\n2. 必须结合产品卖点和图片特征，不要凭空编造未提供的信息。\n3. 如果图片分析里有外观、材质、场景、质感等特征，要把精华自然融入文案。\n4. 必须严格对标风格标签；多个标签同时存在时要融合，而不是分段解释。\n5. 字数必须落在指定区间内，不要明显超出或低于范围。\n6. 可适度使用 emoji，但不要堆砌。\n7. 包含一个温和的行动引导。\n8. 不要复述参考文案，不要照搬固定口头禅，要根据当前产品和目标重新组织表达。\n9. 只输出正文，不解释创作过程。"
+    "目标平台：{platformLabel}\n平台要求：\n{platformInstruction}\n\n平台底层文风记忆：\n{platformStyleMemory}\n\n本次参考文案倾向：\n{referenceInstruction}\n\n外部平台研究洞察：\n{researchMemory}\n\n内容形式：\n{formatGuide}\n\n产品信息：\n{productInfo}\n\n已选素材与图片特征：\n{assetContent}\n\n文案目标：{campaignGoal}\n\n生成控制：\n- 字数区间：{wordCountRange} 字\n- 风格标签：{styleInstruction}\n\n要求：\n1. 文案必须适合目标平台手动发布，语气自然可信。\n2. 必须结合产品卖点和图片特征，不要凭空编造未提供的信息。\n3. 如果图片分析里有外观、材质、场景、质感等特征，要把精华自然融入文案。\n4. 必须严格对标风格标签；多个标签同时存在时要融合，而不是分段解释。\n5. 字数必须落在指定区间内，不要明显超出或低于范围。\n6. 可适度使用 emoji，但不要堆砌。\n7. 包含一个温和的行动引导。\n8. 不要复述参考文案，不要照搬固定口头禅，要根据当前产品和目标重新组织表达。\n9. 只输出正文，不解释创作过程。"
   ]
 ]);
 
@@ -111,7 +112,7 @@ function assetToDocument(item: ProductAssetForGeneration) {
     pageContent: [
       `素材标题：${item.title || "未命名"}`,
       `素材类型：${String(item.type).toUpperCase() === "IMAGE" ? "图片" : "文本"}`,
-      `标签：${item.tags.join(", ") || "无"}`,
+      `关键词：${item.tags.join(", ") || "无"}`,
       `图片：${item.imageUrl || "无"}`,
       `图片分析：${item.imageAnalysis || "无"}`,
       `内容：${item.content || "无"}`
@@ -346,7 +347,7 @@ function extractDistinctSignals(item: ProductAssetForGeneration) {
   const parameterText = signals.parameters.length ? signals.parameters.join(" / ") : "无明确参数";
   const sceneText = signals.scenes.length ? signals.scenes.join(" / ") : "无明确场景";
   const emotionText = signals.emotions.length ? signals.emotions.join(" / ") : "无明确情绪";
-  const tagText = item.tags.length ? item.tags.join(" / ") : "无标签";
+  const tagText = item.tags.length ? item.tags.join(" / ") : "无关键词";
   const visualText = item.imageAnalysis?.trim() || "无图片分析";
 
   return [
@@ -354,7 +355,7 @@ function extractDistinctSignals(item: ProductAssetForGeneration) {
     `- 产品参数：${parameterText}`,
     `- 使用场景：${sceneText}`,
     `- 用户情绪：${emotionText}`,
-    `- 标签：${tagText}`,
+    `- 关键词：${tagText}`,
     `- 图片特征：${visualText}`
   ].join("\n");
 }
@@ -383,6 +384,7 @@ export async function generateMomentContent(input: {
   campaignGoal: string;
   formatGuide: string;
   productInfo: string;
+  researchMemory?: string;
   referenceStyleId?: string;
   wordCountRange?: string;
   styleTags?: string[];
@@ -404,6 +406,7 @@ export async function generateMomentContent(input: {
     platformInstruction: buildPlatformInstruction(input.platform),
     platformStyleMemory: getPlatformStyleMemory(platform),
     referenceInstruction: buildPlatformReferenceInstruction(platform, input.referenceStyleId),
+    researchMemory: input.researchMemory || "暂无外部平台研究洞察，优先依赖当前产品与本地记忆生成。",
     campaignGoal: input.campaignGoal,
     formatGuide: input.formatGuide,
     productInfo: input.productInfo,
