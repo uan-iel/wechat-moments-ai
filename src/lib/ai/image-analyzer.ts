@@ -1,6 +1,30 @@
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
+import { readFile } from "fs/promises";
+import path from "path";
 
 import { createChatModel } from "@/lib/ai/model-config";
+
+const mimeTypes: Record<string, string> = {
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".png": "image/png",
+  ".webp": "image/webp",
+  ".gif": "image/gif"
+};
+
+async function resolveImageUrl(imageUrl: string) {
+  if (!imageUrl.startsWith("/uploads/")) {
+    return imageUrl;
+  }
+
+  const relativePath = imageUrl.replace(/^\/+/, "");
+  const filePath = path.join(process.cwd(), "public", relativePath);
+  const extension = path.extname(filePath).toLowerCase();
+  const mimeType = mimeTypes[extension] || "image/png";
+  const file = await readFile(filePath);
+
+  return `data:${mimeType};base64,${file.toString("base64")}`;
+}
 
 export async function analyzeProductImage(input: {
   imageUrl: string;
@@ -12,6 +36,7 @@ export async function analyzeProductImage(input: {
     capability: "vision",
     temperature: 0.2
   });
+  const imageUrl = await resolveImageUrl(input.imageUrl);
   const response = await model.invoke([
     new SystemMessage(
       "你是一个私域营销图片分析助手。请从产品图片中提炼可用于朋友圈文案的视觉信息，只总结能从图片或上下文中合理判断的内容，不要编造。"
@@ -30,7 +55,7 @@ export async function analyzeProductImage(input: {
         {
           type: "image_url",
           image_url: {
-            url: input.imageUrl
+            url: imageUrl
           }
         }
       ]

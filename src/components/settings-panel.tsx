@@ -115,7 +115,9 @@ export function SettingsPanel() {
   });
   const [fetchingModels, setFetchingModels] = useState<Capability | null>(null);
   const [testResults, setTestResults] = useState<Partial<Record<Capability, CapabilityFeedback>>>({});
+  const [savedAt, setSavedAt] = useState<Partial<Record<Capability, number>>>({});
   const [busy, setBusy] = useState(false);
+  const [savingCapability, setSavingCapability] = useState<Capability | null>(null);
   const [testing, setTesting] = useState<Capability | null>(null);
   const [message, setMessage] = useState("");
 
@@ -161,6 +163,19 @@ export function SettingsPanel() {
       model: drafts[capability].model,
       apiKey: drafts[capability].apiKey
     };
+  }
+
+  function settingsPayloadFor(capabilities: Capability[]) {
+    return Object.fromEntries(
+      capabilities.map((key) => [
+        key,
+        {
+          baseUrl: drafts[key].baseUrl,
+          model: drafts[key].model,
+          apiKey: drafts[key].apiKey
+        }
+      ])
+    );
   }
 
   async function fetchModels(capability: Capability) {
@@ -228,22 +243,12 @@ export function SettingsPanel() {
     setBusy(true);
     setMessage("");
     try {
-      const aiModelConfig = Object.fromEntries(
-        capabilityMeta.map(({ key }) => [
-          key,
-          {
-            baseUrl: drafts[key].baseUrl,
-            model: drafts[key].model,
-            apiKey: drafts[key].apiKey
-          }
-        ])
-      );
       const response = await fetch("/api/settings", {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json"
         },
-        body: JSON.stringify({ aiModelConfig })
+        body: JSON.stringify({ aiModelConfig: settingsPayloadFor(capabilityMeta.map(({ key }) => key)) })
       });
 
       if (!response.ok) {
@@ -252,11 +257,56 @@ export function SettingsPanel() {
       }
 
       setMessage("模型能力配置已保存。");
+      setSavedAt(
+        Object.fromEntries(capabilityMeta.map(({ key }) => [key, Date.now()])) as Partial<Record<Capability, number>>
+      );
       await loadSettings();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "保存设置失败");
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function saveCapability(capability: Capability) {
+    setSavingCapability(capability);
+    setMessage("");
+    try {
+      const response = await fetch("/api/settings", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ aiModelConfig: settingsPayloadFor([capability]) })
+      });
+
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => ({}))) as { error?: string };
+        throw new Error(payload.error || "保存设置失败");
+      }
+
+      setSavedAt((current) => ({
+        ...current,
+        [capability]: Date.now()
+      }));
+      setTestResults((current) => ({
+        ...current,
+        [capability]: {
+          ok: true,
+          message: "已保存。现在可以直接测试或生成内容。"
+        }
+      }));
+      await loadSettings();
+    } catch (error) {
+      setTestResults((current) => ({
+        ...current,
+        [capability]: {
+          ok: false,
+          message: error instanceof Error ? error.message : "保存设置失败"
+        }
+      }));
+    } finally {
+      setSavingCapability(null);
     }
   }
 
@@ -390,11 +440,26 @@ export function SettingsPanel() {
                     placeholder={draft.hasApiKey ? `已配置：${draft.maskedApiKey}` : "sk-..."}
                   />
                   <p className="text-xs text-muted-foreground">
-                    密钥来源：{draft.apiKeySource === "database" ? "页面保存" : draft.apiKeySource === "env" ? ".env" : "未配置"}
+                    当前保存：{draft.model || "未填写模型"} · 密钥来源：{draft.apiKeySource === "database" ? "页面保存" : draft.apiKeySource === "env" ? ".env" : "未配置"}
+                    {savedAt[item.key] ? ` · 刚刚保存` : ""}
                   </p>
                 </div>
 
                 <div className="mt-4 flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => saveCapability(item.key)}
+                    disabled={savingCapability === item.key}
+                  >
+                    {savingCapability === item.key ? (
+                      <Loader2 className="mr-2 size-4 animate-spin" aria-hidden="true" />
+                    ) : (
+                      <Save className="mr-2 size-4" aria-hidden="true" />
+                    )}
+                    保存此项
+                  </Button>
                   <Button
                     type="button"
                     variant="outline"

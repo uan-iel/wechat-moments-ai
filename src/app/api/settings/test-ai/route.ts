@@ -99,6 +99,40 @@ export async function POST(request: Request) {
       });
     }
 
+    if (capability === "vision") {
+      const model = await createChatModel({
+        capability: "vision",
+        temperature: 0,
+        model: endpoint.model,
+        endpoint: parsed.data.endpoint
+      });
+      const response = await model.invoke([
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: "请只回复 OK，用于测试图片理解模型连通性。"
+            },
+            {
+              type: "image_url",
+              image_url: {
+                url: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a4n8AAAAASUVORK5CYII="
+              }
+            }
+          ]
+        }
+      ]);
+
+      return NextResponse.json({
+        ok: true,
+        capability,
+        model: endpoint.model,
+        response: typeof response.content === "string" ? response.content : "图片理解模型配置可用。",
+        elapsedMs: Date.now() - startedAt
+      });
+    }
+
     if (capability === "embedding") {
       const embeddings = parsed.data.endpoint
         ? createEmbeddingModelFromEndpoint(runtimeEndpoint)
