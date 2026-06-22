@@ -4,6 +4,7 @@ import { ChatPromptTemplate } from "@langchain/core/prompts";
 import { MemoryVectorStore } from "langchain/vectorstores/memory";
 
 import { createChatModel, createEmbeddingModel, getAiModelConfig } from "@/lib/ai/model-config";
+import { buildMomentsReferenceInstruction, MOMENTS_STYLE_MEMORY } from "@/lib/ai/moments-style-memory";
 import { normalizePlatform } from "@/lib/platforms";
 
 export type ProductAssetForGeneration = {
@@ -39,7 +40,7 @@ const contentPrompt = ChatPromptTemplate.fromMessages([
   ],
   [
     "human",
-    "目标平台：{platformLabel}\n平台要求：\n{platformInstruction}\n\n内容形式：\n{formatGuide}\n\n产品信息：\n{productInfo}\n\n已选素材与图片特征：\n{assetContent}\n\n文案目标：{campaignGoal}\n\n生成控制：\n- 字数区间：{wordCountRange} 字\n- 风格标签：{styleInstruction}\n\n要求：\n1. 文案必须适合目标平台手动发布，语气自然可信。\n2. 必须结合产品卖点和图片特征，不要凭空编造未提供的信息。\n3. 如果图片分析里有外观、材质、场景、质感等特征，要把精华自然融入文案。\n4. 必须严格对标风格标签；多个标签同时存在时要融合，而不是分段解释。\n5. 字数必须落在指定区间内，不要明显超出或低于范围。\n6. 可适度使用 emoji，但不要堆砌。\n7. 包含一个温和的行动引导。\n8. 只输出正文，不解释创作过程。"
+    "目标平台：{platformLabel}\n平台要求：\n{platformInstruction}\n\n朋友圈底层文风记忆：\n{momentsStyleMemory}\n\n本次参考文案倾向：\n{referenceInstruction}\n\n内容形式：\n{formatGuide}\n\n产品信息：\n{productInfo}\n\n已选素材与图片特征：\n{assetContent}\n\n文案目标：{campaignGoal}\n\n生成控制：\n- 字数区间：{wordCountRange} 字\n- 风格标签：{styleInstruction}\n\n要求：\n1. 文案必须适合目标平台手动发布，语气自然可信。\n2. 必须结合产品卖点和图片特征，不要凭空编造未提供的信息。\n3. 如果图片分析里有外观、材质、场景、质感等特征，要把精华自然融入文案。\n4. 必须严格对标风格标签；多个标签同时存在时要融合，而不是分段解释。\n5. 字数必须落在指定区间内，不要明显超出或低于范围。\n6. 可适度使用 emoji，但不要堆砌。\n7. 包含一个温和的行动引导。\n8. 不要复述参考文案，不要照搬固定口头禅，要根据当前产品和目标重新组织表达。\n9. 只输出正文，不解释创作过程。"
   ]
 ]);
 
@@ -382,6 +383,7 @@ export async function generateMomentContent(input: {
   campaignGoal: string;
   formatGuide: string;
   productInfo: string;
+  referenceStyleId?: string;
   wordCountRange?: string;
   styleTags?: string[];
   assets: ProductAssetForGeneration[];
@@ -400,6 +402,8 @@ export async function generateMomentContent(input: {
   const basePromptInput = {
     platformLabel: normalizePlatform(input.platform) === "XIAOHONGSHU" ? "小红书" : "朋友圈",
     platformInstruction: buildPlatformInstruction(input.platform),
+    momentsStyleMemory: platform === "MOMENTS" ? MOMENTS_STYLE_MEMORY : "非朋友圈平台不启用朋友圈底层文风记忆。",
+    referenceInstruction: platform === "MOMENTS" ? buildMomentsReferenceInstruction(input.referenceStyleId) : "按目标平台规则生成。",
     campaignGoal: input.campaignGoal,
     formatGuide: input.formatGuide,
     productInfo: input.productInfo,

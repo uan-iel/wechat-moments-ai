@@ -13,6 +13,7 @@ const generateContentSchema = z.object({
   contentFormatId: z.string().min(1),
   productId: z.string().min(1),
   selectedAssetIds: z.array(z.string().min(1)).optional(),
+  referenceStyleId: z.string().min(1).optional(),
   wordCountRange: z.enum(["50-150", "150-250", "250-350", "350-450"]).default("150-250"),
   styleTags: z.array(z.string().min(1).max(20)).default([])
 });
@@ -100,6 +101,7 @@ export async function POST(request: Request) {
         `写作要求：${product.contentFormat.writingGuide || "无"}`
       ].join("\n"),
       productInfo: formatProductInfo(product),
+      referenceStyleId: parsed.data.referenceStyleId,
       wordCountRange: parsed.data.wordCountRange,
       styleTags: parsed.data.styleTags.map((tag) => tag.trim()).filter(Boolean),
       assets: assets.map((asset) => ({

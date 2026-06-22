@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { MOMENTS_REFERENCE_OPTIONS } from "@/lib/ai/moments-style-memory";
 import { platformLabel, platformOptions, type ContentPlatformValue } from "@/lib/platforms";
 import { cn } from "@/lib/utils";
 
@@ -50,6 +51,7 @@ export function ContentFactory() {
   const [selectedProductId, setSelectedProductId] = useState("");
   const [selectedAssetIds, setSelectedAssetIds] = useState<string[]>([]);
   const [campaignGoal, setCampaignGoal] = useState("");
+  const [referenceStyleId, setReferenceStyleId] = useState("auto");
   const [wordCountRange, setWordCountRange] = useState<(typeof wordCountOptions)[number]>("150-250");
   const [availableStyleTags, setAvailableStyleTags] = useState(defaultStyleTags);
   const [selectedStyleTags, setSelectedStyleTags] = useState<string[]>(["简约"]);
@@ -140,6 +142,7 @@ export function ContentFactory() {
           contentFormatId: selectedFormatId,
           productId: selectedProductId,
           selectedAssetIds: assetIdsForGeneration,
+          referenceStyleId,
           wordCountRange,
           styleTags: selectedStyleTags
         })
@@ -338,6 +341,39 @@ export function ContentFactory() {
                 </div>
               </div>
             </div>
+
+            {platform === "MOMENTS" ? (
+              <div className="space-y-3 rounded-xl border border-emerald-100 bg-emerald-50/60 p-4">
+                <div>
+                  <Label>参考文案倾向</Label>
+                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                    已根据你提供的参考文案写入朋友圈底层记忆；这里选择本次更接近哪一种参考用法。
+                  </p>
+                </div>
+                <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                  {MOMENTS_REFERENCE_OPTIONS.map((option) => {
+                    const selected = referenceStyleId === option.id;
+
+                    return (
+                      <button
+                        key={option.id}
+                        type="button"
+                        onClick={() => setReferenceStyleId(option.id)}
+                        className={cn(
+                          "rounded-lg border p-3 text-left transition",
+                          selected
+                            ? "border-primary bg-white text-slate-950 ring-2 ring-primary/15"
+                            : "border-emerald-100 bg-white/70 text-slate-700 hover:border-primary/30"
+                        )}
+                      >
+                        <p className="text-sm font-semibold">{option.label}</p>
+                        <p className="mt-1 text-xs leading-5 text-muted-foreground">{option.description}</p>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
 
             <div className="space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-3">
