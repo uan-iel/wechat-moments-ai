@@ -2,6 +2,7 @@ import { StringOutputParser } from "@langchain/core/output_parsers";
 import { ChatPromptTemplate } from "@langchain/core/prompts";
 
 import { createChatModel } from "@/lib/ai/model-config";
+import { getPlatformStyleMemory } from "@/lib/ai/moments-style-memory";
 import { normalizePlatform } from "@/lib/platforms";
 
 const revisePrompt = ChatPromptTemplate.fromMessages([
@@ -17,7 +18,7 @@ const revisePrompt = ChatPromptTemplate.fromMessages([
   ],
   [
     "human",
-    "目标平台：{platformLabel}\n平台要求：\n{platformInstruction}\n\n原文案：\n{content}\n\n修改意见：\n{revisionInstruction}\n\n请在保留核心卖点的基础上重新润色。不要解释修改过程。"
+    "目标平台：{platformLabel}\n平台要求：\n{platformInstruction}\n\n平台底层文风记忆：\n{platformStyleMemory}\n\n原文案：\n{content}\n\n修改意见：\n{revisionInstruction}\n\n请在保留核心卖点的基础上重新润色。不要解释修改过程。"
   ]
 ]);
 
@@ -32,7 +33,7 @@ const xiaohongshuReviseTitlePrompt = ChatPromptTemplate.fromMessages([
   ],
   [
     "human",
-    "原文案：\n{content}\n\n修改意见：\n{revisionInstruction}\n\n请重写一个更适合小红书的标题，控制在 12 到 24 个汉字之间，只输出标题。"
+    "小红书底层文风记忆：\n{platformStyleMemory}\n\n原文案：\n{content}\n\n修改意见：\n{revisionInstruction}\n\n请重写一个更适合小红书的标题，控制在 12 到 24 个汉字之间，只输出标题。"
   ]
 ]);
 
@@ -70,6 +71,7 @@ export async function reviseMomentContent(input: {
   const revisedBody = await chain.invoke({
     ...input,
     platformLabel: platform === "XIAOHONGSHU" ? "小红书" : "朋友圈",
+    platformStyleMemory: getPlatformStyleMemory(platform),
     platformInstruction:
       platform === "XIAOHONGSHU"
         ? [
@@ -90,6 +92,7 @@ export async function reviseMomentContent(input: {
   const { title: existingTitle } = splitXiaohongshuContent(input.content);
   const titleChain = xiaohongshuReviseTitlePrompt.pipe(model).pipe(new StringOutputParser());
   const revisedTitle = await titleChain.invoke({
+    platformStyleMemory: getPlatformStyleMemory(platform),
     content: input.content,
     revisionInstruction: input.revisionInstruction,
     existingTitle

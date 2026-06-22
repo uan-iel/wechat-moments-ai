@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { MOMENTS_REFERENCE_OPTIONS } from "@/lib/ai/moments-style-memory";
+import { MOMENTS_REFERENCE_OPTIONS, XIAOHONGSHU_REFERENCE_OPTIONS } from "@/lib/ai/moments-style-memory";
 import { platformLabel, platformOptions, type ContentPlatformValue } from "@/lib/platforms";
 import { cn } from "@/lib/utils";
 
@@ -67,6 +67,7 @@ export function ContentFactory() {
     () => selectedFormat?.products.find((product) => product.id === selectedProductId) ?? null,
     [selectedFormat, selectedProductId]
   );
+  const referenceOptions = platform === "MOMENTS" ? MOMENTS_REFERENCE_OPTIONS : XIAOHONGSHU_REFERENCE_OPTIONS;
 
   const loadFormats = useCallback(async () => {
     const response = await fetch(`/api/content-formats?platform=${platform}`, { cache: "no-store" });
@@ -342,16 +343,18 @@ export function ContentFactory() {
               </div>
             </div>
 
-            {platform === "MOMENTS" ? (
+            {platform === "MOMENTS" || platform === "XIAOHONGSHU" ? (
               <div className="space-y-3 rounded-xl border border-emerald-100 bg-emerald-50/60 p-4">
                 <div>
                   <Label>参考文案倾向</Label>
                   <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                    已根据你提供的参考文案写入朋友圈底层记忆；这里选择本次更接近哪一种参考用法。
+                    {platform === "MOMENTS"
+                      ? "已根据你提供的参考文案写入朋友圈底层记忆；这里选择本次更接近哪一种参考用法。"
+                      : "已根据你提供的小红书参考文案写入底层记忆；这里选择本次更接近哪一种表达路径。"}
                   </p>
                 </div>
                 <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-                  {MOMENTS_REFERENCE_OPTIONS.map((option) => {
+                  {referenceOptions.map((option) => {
                     const selected = referenceStyleId === option.id;
 
                     return (
