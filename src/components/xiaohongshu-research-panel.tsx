@@ -168,6 +168,7 @@ export function XiaohongshuResearchPanel() {
   const [cookies, setCookies] = useState("");
   const [savingWorker, setSavingWorker] = useState(false);
   const [startingWorker, setStartingWorker] = useState(false);
+  const [installingWorker, setInstallingWorker] = useState(false);
   const [openingBrowser, setOpeningBrowser] = useState(false);
   const [checkingBrowser, setCheckingBrowser] = useState(false);
   const [crawling, setCrawling] = useState(false);
@@ -187,27 +188,42 @@ export function XiaohongshuResearchPanel() {
   }
 
   async function loadWorker() {
-    const [workerResponse, crawlResponse, browserResponse] = await Promise.all([
-      fetch("/api/research/xiaohongshu/worker", { cache: "no-store" }),
-      fetch("/api/research/xiaohongshu/crawl", { cache: "no-store" }),
-      fetch("/api/research/xiaohongshu/browser", { cache: "no-store" })
-    ]);
+    try {
+      const [workerResponse, crawlResponse, browserResponse] = await Promise.all([
+        fetch("/api/research/xiaohongshu/worker", { cache: "no-store" }),
+        fetch("/api/research/xiaohongshu/crawl", { cache: "no-store" }),
+        fetch("/api/research/xiaohongshu/browser", { cache: "no-store" })
+      ]);
 
-    const workerPayload = (await workerResponse.json()) as {
-      config: WorkerConfig;
-      status: WorkerStatus;
-    };
-    const crawlPayload = (await crawlResponse.json()) as {
-      jobs?: CrawlJob[];
-    };
-    const browserPayload = (await browserResponse.json()) as {
-      status: LoginBrowserStatus;
-    };
+      const workerPayload = (await workerResponse.json().catch(() => ({}))) as {
+        error?: string;
+        config?: WorkerConfig;
+        status?: WorkerStatus;
+      };
+      const crawlPayload = (await crawlResponse.json().catch(() => ({}))) as {
+        jobs?: CrawlJob[];
+      };
+      const browserPayload = (await browserResponse.json().catch(() => ({}))) as {
+        status?: LoginBrowserStatus;
+      };
 
-    setConfig(workerPayload.config);
-    setWorkerStatus(workerPayload.status);
-    setLoginBrowserStatus(browserPayload.status);
-    setCrawlJobs(crawlPayload.jobs || []);
+      if (!workerResponse.ok) {
+        throw new Error(workerPayload.error || "读取 worker 状态失败");
+      }
+
+      if (workerPayload.config) {
+        setConfig(workerPayload.config);
+      }
+      if (workerPayload.status) {
+        setWorkerStatus(workerPayload.status);
+      }
+      if (browserPayload.status) {
+        setLoginBrowserStatus(browserPayload.status);
+      }
+      setCrawlJobs(crawlPayload.jobs || []);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "读取 worker 状态失败");
+    }
   }
 
   useEffect(() => {
@@ -310,8 +326,10 @@ export function XiaohongshuResearchPanel() {
     }
   }
 
-  async function saveWorkerConfig(action?: "save" | "start") {
-    if (action === "start") {
+  async function saveWorkerConfig(action?: "save" | "start" | "install") {
+    if (action === "install") {
+      setInstallingWorker(true);
+    } else if (action === "start") {
       setStartingWorker(true);
     } else {
       setSavingWorker(true);
@@ -346,13 +364,20 @@ export function XiaohongshuResearchPanel() {
         setWorkerStatus(payload.status);
       }
 
-      setMessage(action === "start" ? "MediaCrawler worker 已启动或已可用。" : "Worker 配置已保存。");
+      setMessage(
+        action === "install"
+          ? "MediaCrawler worker 已准备好。"
+          : action === "start"
+            ? "MediaCrawler worker 已启动或已可用。"
+            : "Worker 配置已保存。"
+      );
       await loadWorker();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "保存 worker 配置失败");
     } finally {
       setSavingWorker(false);
       setStartingWorker(false);
+      setInstallingWorker(false);
     }
   }
 
@@ -396,8 +421,13 @@ export function XiaohongshuResearchPanel() {
         cache: "no-store"
       });
       const payload = (await response.json().catch(() => ({}))) as {
+        error?: string;
         status?: LoginBrowserStatus;
       };
+
+      if (!response.ok) {
+        throw new Error(payload.error || "检查浏览器状态失败");
+      }
 
       if (payload.status) {
         setLoginBrowserStatus(payload.status);
@@ -683,6 +713,10 @@ export function XiaohongshuResearchPanel() {
               <Button onClick={() => void saveWorkerConfig("save")} disabled={savingWorker}>
                 {savingWorker ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : null}
                 保存配置
+              </Button>
+              <Button variant="outline" onClick={() => void saveWorkerConfig("install")} disabled={installingWorker}>
+                {installingWorker ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <Settings2 className="size-4" aria-hidden="true" />}
+                准备 worker
               </Button>
               <Button variant="outline" onClick={() => void saveWorkerConfig("start")} disabled={startingWorker}>
                 {startingWorker ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <PlayCircle className="size-4" aria-hidden="true" />}

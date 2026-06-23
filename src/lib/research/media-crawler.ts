@@ -37,6 +37,12 @@ type WorkerHealth = {
   logs: string[];
 };
 
+const EXTRA_COMMAND_PATHS = [
+  path.join(os.homedir(), ".local/bin"),
+  "/opt/homebrew/bin",
+  "/usr/local/bin"
+];
+
 type GlobalWorkerState = {
   process: ChildProcessWithoutNullStreams | null;
   logs: string[];
@@ -66,6 +72,19 @@ function pushLog(message: string) {
   current.logs = [...current.logs.slice(-119), `[${new Date().toLocaleString("zh-CN")}] ${message}`];
 }
 
+function looksLikeError(message: string) {
+  return /command not found|error|failed|traceback|exception|no such file|not found|permission denied/i.test(message);
+}
+
+function commandEnv() {
+  return {
+    ...process.env,
+    PATH: Array.from(new Set([...EXTRA_COMMAND_PATHS, process.env.PATH || ""]))
+      .filter(Boolean)
+      .join(":")
+  };
+}
+
 export async function getMediaCrawlerConfig(): Promise<WorkerConfig> {
   const [path, baseUrl, startCommand] = await Promise.all([
     getAppSetting(SETTINGS.path),
@@ -84,7 +103,13 @@ export async function getMediaCrawlerConfig(): Promise<WorkerConfig> {
 
 function detectDefaultMediaCrawlerPath() {
   const bundledPath = path.resolve(process.cwd(), ".crawler/MediaCrawler");
-  return existsSync(bundledPath) ? bundledPath : "";
+  const legacyPath = path.join(os.homedir(), "MediaCrawler");
+
+  if (existsSync(bundledPath)) {
+    return bundledPath;
+  }
+
+  return existsSync(legacyPath) ? legacyPath : "";
 }
 
 export async function saveMediaCrawlerConfig(input: Partial<WorkerConfig>) {
@@ -131,6 +156,10 @@ export async function checkMediaCrawlerHealth(): Promise<WorkerHealth> {
     healthy = false;
   }
 
+  if (healthy) {
+    current.lastError = null;
+  }
+
   return {
     configured: Boolean(config.path && config.baseUrl && config.startCommand),
     baseUrl: config.baseUrl,
@@ -153,6 +182,7 @@ function runCommand(command: string, cwd: string) {
     pushLog(`执行：${command}`);
     const child = spawn(process.env.SHELL || "zsh", ["-lc", command], {
       cwd,
+      env: commandEnv(),
       stdio: "pipe"
     });
 
@@ -166,7 +196,9 @@ function runCommand(command: string, cwd: string) {
     child.stderr.on("data", (chunk) => {
       const message = String(chunk).trim();
       if (message) {
-        current.lastError = message;
+        if (looksLikeError(message)) {
+          current.lastError = message;
+        }
         pushLog(message);
       }
     });
@@ -235,7 +267,14 @@ export async function startMediaCrawlerWorker() {
   }
 
   if (!config.path) {
-    throw new Error("请先配置 MediaCrawler 本地路径。");
+    await installMediaCrawlerWorker();
+    return startMediaCrawlerWorker();
+  }
+
+  if (!existsSync(config.path)) {
+    pushLog(`MediaCrawler 路径不存在：${config.path}，开始自动准备 worker。`);
+    await installMediaCrawlerWorker();
+    return startMediaCrawlerWorker();
   }
 
   if (!config.startCommand) {
@@ -249,6 +288,7 @@ export async function startMediaCrawlerWorker() {
   pushLog(`启动 MediaCrawler worker：${config.startCommand}`);
   const child = spawn(process.env.SHELL || "zsh", ["-lc", config.startCommand], {
     cwd: config.path,
+    env: commandEnv(),
     stdio: "pipe"
   });
 
@@ -262,7 +302,9 @@ export async function startMediaCrawlerWorker() {
   child.stderr.on("data", (chunk) => {
     const message = String(chunk).trim();
     if (message) {
-      current.lastError = message;
+      if (looksLikeError(message)) {
+        current.lastError = message;
+      }
       pushLog(message);
     }
   });
@@ -277,6 +319,7 @@ export async function startMediaCrawlerWorker() {
     await new Promise((resolve) => setTimeout(resolve, 1000));
     const nextHealth = await checkMediaCrawlerHealth();
     if (nextHealth.healthy) {
+      current.lastError = null;
       pushLog("MediaCrawler worker 已就绪。");
       return nextHealth;
     }

@@ -4,6 +4,7 @@ import { z } from "zod";
 import {
   checkMediaCrawlerHealth,
   getMediaCrawlerConfig,
+  installMediaCrawlerWorker,
   saveMediaCrawlerConfig,
   startMediaCrawlerWorker
 } from "@/lib/research/media-crawler";
@@ -14,7 +15,7 @@ const configSchema = z.object({
   path: z.string().optional(),
   baseUrl: z.string().optional(),
   startCommand: z.string().optional(),
-  action: z.enum(["save", "start"]).optional()
+  action: z.enum(["save", "start", "install"]).optional()
 });
 
 export async function GET() {
@@ -35,6 +36,12 @@ export async function PATCH(request: Request) {
   }
 
   const config = await saveMediaCrawlerConfig(parsed.data);
+
+  if (parsed.data.action === "install") {
+    const installedConfig = await installMediaCrawlerWorker();
+    const status = await checkMediaCrawlerHealth();
+    return NextResponse.json({ config: installedConfig, status });
+  }
 
   if (parsed.data.action === "start") {
     const status = await startMediaCrawlerWorker();

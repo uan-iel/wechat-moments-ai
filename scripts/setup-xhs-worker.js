@@ -11,6 +11,15 @@ const mediaCrawlerPath = path.join(crawlerRoot, "MediaCrawler");
 function run(command, args, cwd) {
   const result = spawnSync(command, args, {
     cwd,
+    env: {
+      ...process.env,
+      PATH: [
+        `${process.env.HOME}/.local/bin`,
+        "/opt/homebrew/bin",
+        "/usr/local/bin",
+        process.env.PATH || ""
+      ].join(":")
+    },
     stdio: "inherit",
     shell: false
   });
