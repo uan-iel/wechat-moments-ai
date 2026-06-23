@@ -26,10 +26,16 @@ npm install
 cp .env.example .env
 docker compose up -d postgres
 npx prisma migrate dev
-npm run dev
+npm run dev:up
 ```
 
 Open `http://localhost:3100` to view the local workspace.
+
+`npm run dev:up` 会先检查本地服务是否已经可用：
+
+- 如果已经在运行，会直接复用
+- 如果还没启动，会自动拉起开发服务
+- 如果 `3100` 被别的进程占用，会明确提示占用者信息
 
 ## Main Pages
 

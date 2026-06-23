@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-const { spawn } = require("node:child_process");
+const { spawn, spawnSync } = require("node:child_process");
 const http = require("node:http");
 
 const app = {
@@ -19,6 +19,7 @@ const app = {
 };
 
 const panelBaseUrl = "http://localhost:9999";
+const healthUrl = "http://127.0.0.1:3100/api/health";
 
 function request(method, url, body) {
   return new Promise((resolve, reject) => {
@@ -79,6 +80,43 @@ async function isPortAvailable(port) {
   });
 }
 
+async function checkHealth() {
+  try {
+    const result = await request("GET", healthUrl);
+    if (result.status < 200 || result.status >= 300) {
+      return false;
+    }
+
+    const body = JSON.parse(result.body || "{}");
+    return body?.ok === true;
+  } catch {
+    return false;
+  }
+}
+
+function describePortOwner(port) {
+  const result = spawnSync("lsof", ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN"], {
+    encoding: "utf8"
+  });
+
+  if (result.status !== 0 || !result.stdout.trim()) {
+    return null;
+  }
+
+  return result.stdout.trim();
+}
+
+async function waitUntilHealthy(timeoutMs = 30000) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    if (await checkHealth()) {
+      return true;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+  return false;
+}
+
 async function registerWithPanel() {
   try {
     const result = await request("GET", `${panelBaseUrl}/api/projects`);
@@ -106,8 +144,13 @@ async function startFromPanel() {
     const result = await request("POST", `${panelBaseUrl}/api/projects/${app.id}/start`);
     if (result.status >= 200 && result.status < 300) {
       const body = JSON.parse(result.body || "{}");
-      console.log(body.ok ? "Started from Dev Dashboard." : `Dev Dashboard start response: ${body.msg || result.body}`);
-      return Boolean(body.ok);
+      if (!body.ok) {
+        console.log(`Dev Dashboard start response: ${body.msg || result.body}`);
+        return false;
+      }
+
+      console.log("Started from Dev Dashboard.");
+      return waitUntilHealthy();
     }
     console.log(`Dev Dashboard start endpoint returned ${result.status}`);
   } catch (error) {
@@ -117,10 +160,9 @@ async function startFromPanel() {
 }
 
 async function main() {
-  const available = await isPortAvailable(app.port);
-  if (!available) {
-    console.error(`Port ${app.port} is already in use. Stop that process or change this script.`);
-    process.exit(1);
+  if (await checkHealth()) {
+    console.log(`${app.name} is already running at ${app.url}`);
+    return;
   }
 
   const registered = await registerWithPanel();
@@ -129,6 +171,16 @@ async function main() {
     if (started) {
       return;
     }
+  }
+
+  const available = await isPortAvailable(app.port);
+  if (!available) {
+    const owner = describePortOwner(app.port);
+    console.error(`Port ${app.port} is already in use, but ${app.name} is not responding on ${healthUrl}.`);
+    if (owner) {
+      console.error(owner);
+    }
+    process.exit(1);
   }
 
   console.log(`Starting ${app.name} at ${app.url}`);
