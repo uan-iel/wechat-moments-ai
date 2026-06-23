@@ -38,6 +38,22 @@ function globalMonitorState() {
   return globalState.xhsCrawlJobMonitors;
 }
 
+function chooseImportFile(
+  files: Array<{ path: string; modified_at: number | string; name: string }>,
+  startedAt?: Date | null
+) {
+  const sorted = [...files].sort((left, right) => Number(right.modified_at) - Number(left.modified_at));
+
+  if (!startedAt) {
+    return sorted[0];
+  }
+
+  const threshold = startedAt.getTime() - 15 * 1000;
+  const startedAfterFiles = sorted.filter((file) => Number(file.modified_at) >= threshold);
+
+  return startedAfterFiles[0] || sorted[0];
+}
+
 async function importLatestMediaCrawlerResult(jobId: string, autoAnalyze: boolean) {
   const job = await prisma.researchCrawlJob.findUnique({
     where: { id: jobId }
@@ -57,8 +73,7 @@ async function importLatestMediaCrawlerResult(jobId: string, autoAnalyze: boolea
   const filesPayload = (await mediaCrawlerRequest("/api/data/files?platform=xhs&file_type=json")) as {
     files?: Array<{ path: string; modified_at: number | string; name: string }>;
   };
-  const latest = (filesPayload.files || [])
-    .sort((left, right) => Number(right.modified_at) - Number(left.modified_at))[0];
+  const latest = chooseImportFile(filesPayload.files || [], job.startedAt);
 
   if (!latest) {
     throw new Error("抓取结束了，但没有找到可导入的小红书 JSON 结果文件。");
@@ -286,12 +301,24 @@ export async function DELETE(request: Request) {
       platform: ContentPlatform.XIAOHONGSHU
     },
     select: {
-      id: true
+      id: true,
+      status: true
     }
   });
 
   if (!job) {
     return NextResponse.json({ error: "Crawl job not found" }, { status: 404 });
+  }
+
+  if (
+    job.status === ResearchCrawlStatus.RUNNING ||
+    job.status === ResearchCrawlStatus.IMPORTING ||
+    job.status === ResearchCrawlStatus.PENDING
+  ) {
+    return NextResponse.json(
+      { error: "抓取任务仍在运行中，完成或失败后再删除。" },
+      { status: 409 }
+    );
   }
 
   await prisma.researchCrawlJob.delete({

@@ -2,6 +2,21 @@ import { ContentPlatform, Prisma, PrismaClient } from "@prisma/client";
 
 type ImportablePrisma = PrismaClient;
 
+function tokenize(value: string) {
+  const normalized = cleanString(value).toLowerCase();
+  const asciiTokens: string[] = normalized.match(/[a-z0-9]+/g) ?? [];
+  const cjkTokens: string[] = normalized.match(/[\u4e00-\u9fa5]{2,}/g) ?? [];
+  const cjkBigrams = cjkTokens.flatMap((token) => {
+    if (token.length <= 2) {
+      return [token];
+    }
+
+    return Array.from({ length: token.length - 1 }, (_, index) => token.slice(index, index + 2));
+  });
+
+  return Array.from(new Set([...asciiTokens, ...cjkTokens, ...cjkBigrams].map((token) => token.trim()).filter(Boolean)));
+}
+
 function cleanString(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
@@ -122,6 +137,60 @@ function normalizeNote(note: Record<string, unknown>) {
   };
 }
 
+function rawNoteSourceKeyword(note: Record<string, unknown>) {
+  return cleanString(note.source_keyword || note.sourceKeyword || note.keyword || note.query);
+}
+
+function rawNoteMatchesSourceQuery(note: Record<string, unknown>, sourceQuery?: string | null) {
+  const query = cleanString(sourceQuery || "");
+
+  if (!query) {
+    return true;
+  }
+
+  const sourceKeyword = rawNoteSourceKeyword(note);
+
+  if (!sourceKeyword) {
+    return null;
+  }
+
+  return sourceKeyword.toLowerCase() === query.toLowerCase();
+}
+
+function noteMatchesQuery(
+  note: NonNullable<ReturnType<typeof normalizeNote>>,
+  sourceQuery?: string | null
+) {
+  const query = cleanString(sourceQuery || "");
+
+  if (!query) {
+    return true;
+  }
+
+  const referenceTokens = tokenize(query);
+
+  if (referenceTokens.length === 0) {
+    return true;
+  }
+
+  const candidateText = [note.title, note.content, note.keywords.join(" "), note.authorName]
+    .filter(Boolean)
+    .join("\n")
+    .toLowerCase();
+
+  if (candidateText.includes(query.toLowerCase())) {
+    return true;
+  }
+
+  const overlapCount = referenceTokens.reduce(
+    (count, token) => count + (candidateText.includes(token) ? 1 : 0),
+    0
+  );
+  const minimumOverlap = referenceTokens.length >= 2 ? 2 : 1;
+
+  return overlapCount >= minimumOverlap;
+}
+
 async function upsertCollection(prisma: ImportablePrisma, input: {
   projectId: string;
   name: string;
@@ -201,10 +270,25 @@ export async function importXiaohongshuResearchPayload(prisma: ImportablePrisma,
   sourceType?: string;
 }) {
   const rawNotes = normalizeArray(input.payload);
-  const notes = rawNotes.map(normalizeNote).filter((item): item is NonNullable<ReturnType<typeof normalizeNote>> => Boolean(item));
+  const rawSourceMatches = rawNotes.filter((note) => rawNoteMatchesSourceQuery(note, input.sourceQuery) === true);
+  const hasSourceKeyword = rawNotes.some((note) => rawNoteMatchesSourceQuery(note, input.sourceQuery) !== null);
+  const scopedRawNotes = hasSourceKeyword ? rawSourceMatches : rawNotes;
+  const normalizedNotes = rawNotes
+    .map(normalizeNote)
+    .filter((item): item is NonNullable<ReturnType<typeof normalizeNote>> => Boolean(item));
+  const sourceScopedNotes = scopedRawNotes
+    .map(normalizeNote)
+    .filter((item): item is NonNullable<ReturnType<typeof normalizeNote>> => Boolean(item));
+  const notes = sourceScopedNotes.filter((note) => noteMatchesQuery(note, input.sourceQuery));
 
-  if (notes.length === 0) {
-    throw new Error("No usable Xiaohongshu notes were found in the imported payload.");
+  const usableNotes = input.sourceQuery ? (hasSourceKeyword ? sourceScopedNotes : notes) : normalizedNotes;
+
+  if (usableNotes.length === 0) {
+    throw new Error(
+      input.sourceQuery
+        ? `没有找到与“${input.sourceQuery}”匹配的小红书抓取结果。请重新抓取，或换一个更贴近小红书搜索结果的关键词。`
+        : "No usable Xiaohongshu notes were found in the imported payload."
+    );
   }
 
   const collection = await upsertCollection(prisma, {
@@ -215,12 +299,24 @@ export async function importXiaohongshuResearchPayload(prisma: ImportablePrisma,
     description: input.description
   });
 
-  for (const note of notes) {
+  await prisma.researchInsight.deleteMany({
+    where: {
+      collectionId: collection.id
+    }
+  });
+
+  await prisma.researchNote.deleteMany({
+    where: {
+      collectionId: collection.id
+    }
+  });
+
+  for (const note of usableNotes) {
     await upsertNote(prisma, collection.id, note);
   }
 
   return {
     collection,
-    notesImported: notes.length
+    notesImported: usableNotes.length
   };
 }

@@ -3,12 +3,37 @@ import { ContentPlatform } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { normalizePlatform } from "@/lib/platforms";
 
+const GENERIC_RESEARCH_TOKENS = new Set([
+  "产品",
+  "文案",
+  "内容",
+  "小红书",
+  "笔记",
+  "推荐",
+  "好物",
+  "种草",
+  "礼物",
+  "送礼",
+  "创意礼物",
+  "生日礼物",
+  "闺蜜礼物"
+]);
+
 function tokenize(value: string) {
   const normalized = value.toLowerCase();
   const asciiTokens: string[] = normalized.match(/[a-z0-9]+/g) ?? [];
   const cjkTokens: string[] = normalized.match(/[\u4e00-\u9fa5]{2,}/g) ?? [];
+  const cjkBigrams = cjkTokens.flatMap((token) => {
+    if (token.length <= 2) {
+      return [token];
+    }
 
-  return asciiTokens.concat(cjkTokens).map((token) => token.trim()).filter(Boolean);
+    return Array.from({ length: token.length - 1 }, (_, index) => token.slice(index, index + 2));
+  });
+
+  return Array.from(new Set(asciiTokens.concat(cjkTokens, cjkBigrams)))
+    .map((token) => token.trim())
+    .filter((token) => token && !GENERIC_RESEARCH_TOKENS.has(token));
 }
 
 function overlapScore(referenceTokens: string[], candidateText: string) {
@@ -26,6 +51,7 @@ export async function buildResearchMemory(input: {
   contentFormatName?: string;
   productName?: string;
   productKeywords?: string[];
+  campaignGoal?: string;
 }) {
   if (normalizePlatform(input.platform) !== "XIAOHONGSHU") {
     return "无需加载研究洞察：这部分研究记忆只提供给小红书生成模块，朋友圈模块禁止读取。";
@@ -48,7 +74,9 @@ export async function buildResearchMemory(input: {
   }
 
   const referenceTokens = tokenize(
-    [input.contentFormatName, input.productName, ...(input.productKeywords ?? [])].filter(Boolean).join(" ")
+    [input.campaignGoal, input.contentFormatName, input.productName, ...(input.productKeywords ?? [])]
+      .filter(Boolean)
+      .join(" ")
   );
   const ranked = candidateInsights
     .map((insight, index) => {
@@ -64,12 +92,18 @@ export async function buildResearchMemory(input: {
 
       return {
         insight,
-        score: overlapScore(referenceTokens, text) * 10 + (candidateInsights.length - index)
+        overlap: overlapScore(referenceTokens, text),
+        score: overlapScore(referenceTokens, text) * 12 + (candidateInsights.length - index)
       };
     })
+    .filter((item) => (referenceTokens.length > 0 ? item.overlap > 0 : false))
     .sort((left, right) => right.score - left.score)
     .slice(0, 3)
     .map(({ insight }) => insight);
+
+  if (ranked.length === 0) {
+    return "当前没有和本次主题直接相关的小红书研究洞察，优先依赖当前产品、图片特征和平台底层文风记忆生成。";
+  }
 
   return ranked
     .map((insight, index) =>

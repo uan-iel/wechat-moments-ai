@@ -139,6 +139,12 @@ function statusMeta(status: string) {
   }
 }
 
+function isActiveCrawlStatus(status: string | null | undefined) {
+  const normalized = normalizeStatus(status);
+
+  return normalized === "running" || normalized === "importing" || normalized === "pending";
+}
+
 function metric(value: number | null | undefined) {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
@@ -677,6 +683,11 @@ export function XiaohongshuResearchPanel() {
   }
 
   async function deleteCrawlJob(job: CrawlJob) {
+    if (isActiveCrawlStatus(job.status)) {
+      setMessage("这个抓取任务还在运行中，先保留它；完成或失败后再删除任务记录。");
+      return;
+    }
+
     const confirmed = window.confirm(`确认删除任务记录“${job.collectionName}”吗？这只会删除任务记录本身。`);
     if (!confirmed) {
       return;
@@ -1068,8 +1079,9 @@ export function XiaohongshuResearchPanel() {
                       variant="ghost"
                       size="icon-sm"
                       onClick={() => void deleteCrawlJob(job)}
-                      disabled={deletingJobId === job.id}
+                      disabled={deletingJobId === job.id || isActiveCrawlStatus(job.status)}
                       aria-label={`删除任务 ${job.collectionName}`}
+                      title={isActiveCrawlStatus(job.status) ? "任务运行中，完成后可删除" : "删除任务记录"}
                     >
                       {deletingJobId === job.id ? (
                         <Loader2 className="size-4 animate-spin" aria-hidden="true" />

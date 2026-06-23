@@ -98,6 +98,7 @@ export async function POST(request: Request) {
         ? await buildResearchMemory({
             platform: parsed.data.platform,
             projectId: project.id,
+            campaignGoal: parsed.data.campaignGoal,
             contentFormatName: product.contentFormat.name,
             productName: product.name,
             productKeywords: product.sellingPoints
