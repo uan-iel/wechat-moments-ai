@@ -42,7 +42,6 @@ type ResearchCollection = {
   notes: Array<{
     id: string;
     title: string | null;
-    content: string | null;
     authorName: string | null;
     noteUrl: string | null;
     publishedAt: string | null;
@@ -50,6 +49,8 @@ type ResearchCollection = {
     likeCount: number | null;
     commentCount: number | null;
     collectCount: number | null;
+    shareCount: number | null;
+    viewCount: number | null;
   }>;
   _count: {
     notes: number;
@@ -97,17 +98,7 @@ type LoginBrowserStatus = {
   webSocketDebuggerUrl: string | null;
 };
 
-function shortText(text: string | null | undefined, max = 110) {
-  if (!text) {
-    return "暂无正文摘要。";
-  }
-
-  if (text.length <= max) {
-    return text;
-  }
-
-  return `${text.slice(0, max)}...`;
-}
+type ResearchNote = ResearchCollection["notes"][number];
 
 function normalizeStatus(status: string | null | undefined) {
   return String(status || "").toLowerCase();
@@ -148,6 +139,171 @@ function statusMeta(status: string) {
   }
 }
 
+function metric(value: number | null | undefined) {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function formatMetric(value: number | null | undefined) {
+  const number = metric(value);
+
+  if (number >= 10000) {
+    return `${(number / 10000).toFixed(number >= 100000 ? 0 : 1)}万`;
+  }
+
+  return String(number);
+}
+
+function formatDate(value: string | null | undefined) {
+  if (!value) {
+    return "未知时间";
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "未知时间";
+  }
+
+  return date.toLocaleDateString("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  });
+}
+
+function formatRate(part: number | null | undefined, total: number | null | undefined) {
+  const denominator = metric(total);
+
+  if (denominator <= 0) {
+    return "暂无";
+  }
+
+  return `${((metric(part) / denominator) * 100).toFixed(1)}%`;
+}
+
+function totalInteractions(note: ResearchNote) {
+  return metric(note.likeCount) + metric(note.commentCount) + metric(note.collectCount) + metric(note.shareCount);
+}
+
+function SampleMetrics({ note }: { note: ResearchNote }) {
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-slate-500">
+      <span className="inline-flex items-center gap-1">
+        <Heart className="size-3.5" aria-hidden="true" />
+        点赞 {formatMetric(note.likeCount)}
+      </span>
+      <span className="inline-flex items-center gap-1">
+        <MessageCircle className="size-3.5" aria-hidden="true" />
+        评论 {formatMetric(note.commentCount)}
+      </span>
+      <span>收藏 {formatMetric(note.collectCount)}</span>
+      <span>分享 {formatMetric(note.shareCount)}</span>
+      <span>浏览 {formatMetric(note.viewCount)}</span>
+      <span>阅赞比 {formatRate(note.likeCount, note.viewCount)}</span>
+      <span>阅评比 {formatRate(note.commentCount, note.viewCount)}</span>
+    </div>
+  );
+}
+
+function SampleSummary({
+  collection,
+  expanded,
+  onToggle
+}: {
+  collection: ResearchCollection;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  const topNote = collection.notes[0] ?? null;
+
+  return (
+    <div className="space-y-3">
+      <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="text-sm font-semibold text-slate-950">{collection.name}</div>
+            <div className="mt-1 text-xs text-slate-500">
+              共 {collection._count.notes} 条样本
+              {collection.sourceQuery ? ` · 来源：${collection.sourceQuery}` : ""}
+            </div>
+          </div>
+          <Button type="button" variant="outline" size="sm" onClick={onToggle}>
+            {expanded ? "收起样本" : "查看全部样本"}
+          </Button>
+        </div>
+        {topNote ? (
+          <div className="mt-4 rounded-lg bg-white p-3">
+            <div className="text-xs font-medium text-slate-500">当前数据表现最佳样本</div>
+            <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
+              <div className="min-w-0 text-sm font-semibold text-slate-950">{topNote.title || "未命名笔记"}</div>
+              <span className="shrink-0 rounded-full bg-rose-50 px-2 py-1 text-xs font-medium text-rose-700">
+                总互动 {formatMetric(totalInteractions(topNote))}
+              </span>
+            </div>
+            <div className="mt-2">
+              <SampleMetrics note={topNote} />
+            </div>
+          </div>
+        ) : (
+          <p className="mt-3 text-sm text-slate-600">这个集合暂时没有样本。</p>
+        )}
+      </div>
+      {expanded ? <SampleList notes={collection.notes} /> : null}
+    </div>
+  );
+}
+
+function SampleList({ notes }: { notes: ResearchNote[] }) {
+  if (notes.length === 0) {
+    return <p className="rounded-xl border border-dashed border-slate-300 bg-white px-4 py-5 text-sm text-slate-600">暂无样本。</p>;
+  }
+
+  return (
+    <div className="max-h-[560px] space-y-2 overflow-auto rounded-xl border border-slate-200 bg-white p-2">
+      {notes.map((note, index) => (
+        <div key={note.id} className="rounded-lg border border-slate-100 bg-slate-50 p-3">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="rounded-full bg-white px-2 py-0.5 text-xs font-semibold text-slate-500">#{index + 1}</span>
+                <span className="text-sm font-semibold text-slate-950">{note.title || "未命名笔记"}</span>
+              </div>
+              <div className="mt-1 text-xs text-slate-500">
+                {note.authorName || "未知作者"} · {formatDate(note.publishedAt)}
+              </div>
+            </div>
+            {note.noteUrl ? (
+              <a
+                href={note.noteUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex shrink-0 items-center gap-1 rounded-full bg-white px-3 py-1.5 text-xs font-medium text-rose-600 ring-1 ring-rose-100 hover:bg-rose-50 hover:text-rose-700"
+              >
+                查看全文
+                <ExternalLink className="size-3" aria-hidden="true" />
+              </a>
+            ) : (
+              <span className="shrink-0 rounded-full bg-white px-3 py-1.5 text-xs text-slate-400 ring-1 ring-slate-100">暂无链接</span>
+            )}
+          </div>
+          <div className="mt-3">
+            <SampleMetrics note={note} />
+          </div>
+          {note.keywords.length > 0 ? (
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {note.keywords.slice(0, 6).map((keyword) => (
+                <span key={keyword} className="rounded-full bg-white px-2 py-1 text-xs text-slate-500 ring-1 ring-slate-100">
+                  {keyword}
+                </span>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function XiaohongshuResearchPanel() {
   const [collections, setCollections] = useState<ResearchCollection[]>([]);
   const [loading, setLoading] = useState(true);
@@ -174,6 +330,7 @@ export function XiaohongshuResearchPanel() {
   const [crawling, setCrawling] = useState(false);
   const [deletingCollectionId, setDeletingCollectionId] = useState<string | null>(null);
   const [deletingJobId, setDeletingJobId] = useState<string | null>(null);
+  const [expandedCollectionId, setExpandedCollectionId] = useState<string | null>(null);
   const [message, setMessage] = useState("");
 
   async function loadCollections() {
@@ -825,52 +982,20 @@ export function XiaohongshuResearchPanel() {
       <div className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
         <Card className="panel-card">
           <CardHeader>
-            <CardTitle>最近一次产出</CardTitle>
-            <CardDescription>这里直接展示最近导入的样本内容，不再显示日志。</CardDescription>
+            <CardTitle>最近一次抓取总结</CardTitle>
+            <CardDescription>默认只展示集合概况；需要复盘时再展开全部样本，按数据表现从高到低排列。</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             {!latestCollection ? (
               <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-sm text-slate-600">
                 还没有已导入的小红书研究数据。
               </div>
-            ) : latestCollection.notes.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-sm text-slate-600">
-                最近集合里暂时没有可展示的样本。
-              </div>
             ) : (
-              latestCollection.notes.slice(0, 3).map((note) => (
-                <div key={note.id} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="text-sm font-semibold text-slate-950">{note.title || "未命名笔记"}</div>
-                      <div className="mt-1 text-xs text-slate-500">{note.authorName || "未知作者"}</div>
-                    </div>
-                    {note.noteUrl ? (
-                      <a
-                        href={note.noteUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex shrink-0 items-center gap-1 text-xs text-rose-600 hover:text-rose-700"
-                      >
-                        原文
-                        <ExternalLink className="size-3" aria-hidden="true" />
-                      </a>
-                    ) : null}
-                  </div>
-                  <p className="mt-3 text-sm leading-6 text-slate-700">{shortText(note.content, 130)}</p>
-                  <div className="mt-3 flex flex-wrap gap-3 text-xs text-slate-500">
-                    <span className="inline-flex items-center gap-1">
-                      <Heart className="size-3.5" aria-hidden="true" />
-                      {note.likeCount ?? 0}
-                    </span>
-                    <span className="inline-flex items-center gap-1">
-                      <MessageCircle className="size-3.5" aria-hidden="true" />
-                      {note.commentCount ?? 0}
-                    </span>
-                    <span>收藏 {note.collectCount ?? 0}</span>
-                  </div>
-                </div>
-              ))
+              <SampleSummary
+                collection={latestCollection}
+                expanded={expandedCollectionId === latestCollection.id}
+                onToggle={() => setExpandedCollectionId(expandedCollectionId === latestCollection.id ? null : latestCollection.id)}
+              />
             )}
           </CardContent>
         </Card>
@@ -1096,32 +1221,13 @@ export function XiaohongshuResearchPanel() {
                     <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                       <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-900">
                         <Database className="size-4" aria-hidden="true" />
-                        代表样本
+                        样本抓取总结
                       </div>
-                      <div className="space-y-3">
-                        {collection.notes.length === 0 ? (
-                          <p className="text-sm leading-6 text-slate-600">暂无样本预览。</p>
-                        ) : (
-                          collection.notes.slice(0, 3).map((note) => (
-                            <div key={note.id} className="rounded-lg border border-slate-200 bg-white p-3">
-                              <div className="text-sm font-medium text-slate-900">{note.title || "未命名笔记"}</div>
-                              <p className="mt-1 text-sm leading-6 text-slate-600">
-                                {shortText(note.content, 90)}
-                              </p>
-                              <div className="mt-2 flex flex-wrap gap-3 text-xs text-slate-500">
-                                <span className="inline-flex items-center gap-1">
-                                  <Heart className="size-3.5" aria-hidden="true" />
-                                  {note.likeCount ?? 0}
-                                </span>
-                                <span className="inline-flex items-center gap-1">
-                                  <MessageCircle className="size-3.5" aria-hidden="true" />
-                                  {note.commentCount ?? 0}
-                                </span>
-                              </div>
-                            </div>
-                          ))
-                        )}
-                      </div>
+                      <SampleSummary
+                        collection={collection}
+                        expanded={expandedCollectionId === collection.id}
+                        onToggle={() => setExpandedCollectionId(expandedCollectionId === collection.id ? null : collection.id)}
+                      />
                     </div>
                   </div>
                 </div>

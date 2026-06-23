@@ -14,6 +14,29 @@ const analyzeSchema = z.object({
   scopeKey: z.string().min(1).optional()
 });
 
+function metric(value: number | null | undefined) {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function noteDataScore(note: {
+  likeCount: number | null;
+  commentCount: number | null;
+  collectCount: number | null;
+  shareCount: number | null;
+  viewCount: number | null;
+}) {
+  const likes = metric(note.likeCount);
+  const comments = metric(note.commentCount);
+  const collects = metric(note.collectCount);
+  const shares = metric(note.shareCount);
+  const views = metric(note.viewCount);
+  const likeRate = views > 0 ? likes / views : 0;
+  const commentRate = views > 0 ? comments / views : 0;
+  const collectRate = views > 0 ? collects / views : 0;
+
+  return likes + comments * 2.6 + collects * 2.8 + shares * 1.8 + likeRate * 600 + commentRate * 900 + collectRate * 750;
+}
+
 export async function GET(request: Request) {
   const project = await getActiveProjectFromRequest(request);
   const collections = await prisma.researchCollection.findMany({
@@ -30,18 +53,18 @@ export async function GET(request: Request) {
       },
       notes: {
         orderBy: [{ likeCount: "desc" }, { publishedAt: "desc" }],
-        take: 5,
         select: {
           id: true,
           title: true,
-          content: true,
           authorName: true,
           noteUrl: true,
           publishedAt: true,
           keywords: true,
           likeCount: true,
           commentCount: true,
-          collectCount: true
+          collectCount: true,
+          shareCount: true,
+          viewCount: true
         }
       },
       _count: {
@@ -57,7 +80,17 @@ export async function GET(request: Request) {
   });
 
   return NextResponse.json({
-    collections
+    collections: collections.map((collection) => ({
+      ...collection,
+      notes: [...collection.notes].sort((left, right) => {
+        const scoreDelta = noteDataScore(right) - noteDataScore(left);
+        if (scoreDelta !== 0) {
+          return scoreDelta;
+        }
+
+        return metric(right.likeCount) - metric(left.likeCount);
+      })
+    }))
   });
 }
 
