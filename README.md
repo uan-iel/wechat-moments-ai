@@ -4,6 +4,9 @@
 
 ## 现在能做什么
 
+- 进入工作台后先选择一个品牌项目；默认项目为 `默认项目`
+- 每个品牌项目拥有独立的内容形式、产品、素材、任务、日历、小红书研究和写作记忆
+- 模型配置、页面和生成工作流是全局共用的，不需要给每个品牌重复配置
 - 按平台读取本地数据库里的内容形式、产品和分类文案记忆
 - 投喂的参考文案存放在本地数据库，不上传到 GitHub
 - 生成文案时按平台自动切换表达方式
@@ -45,6 +48,15 @@ Open `http://localhost:3100` to view the local workspace.
 - `/calendar` - 记录朋友圈 / 小红书的手工发布计划
 - `/settings` - 配置模型服务与测试连接
 
+## Brand Projects
+
+左侧栏顶部可以切换或新增品牌项目。
+
+- `默认项目` 是升级前已有本地数据的默认承接项目
+- 新增项目后，会拥有一套独立数据：内容形式、产品、图片/文案素材、生成任务、日历记录、小红书抓取结果和研究洞察都不会与其他项目共用
+- 文案模型、向量模型、图片理解模型等配置仍是全局配置，避免重复填写
+- 当前选中的项目会写入本地 Cookie；API 也支持通过 `projectId` 或 `projectSlug` 显式指定项目
+
 ## Model Configuration
 
 模型配置是统一的，不区分朋友圈和小红书。
@@ -61,6 +73,8 @@ Open `http://localhost:3100` to view the local workspace.
 
 ```json
 {
+  "projectSlug": "default-project",
+  "projectName": "默认项目",
   "formats": [
     {
       "platform": "MOMENTS",
@@ -95,7 +109,13 @@ npm run memory:import
 导出本地记忆包：
 
 ```bash
-npm run memory:export
+npm run memory:export -- .local-memory/reference-memory-export.json default-project
+```
+
+导入项目级写作记忆：
+
+```bash
+npm run memory:project:import
 ```
 
 ## Xiaohongshu Research Import
@@ -177,6 +197,7 @@ npm run worker:xhs:install
 
 ## Data Model
 
+- `BrandProject` - 品牌项目，隔离业务数据与平台写作记忆
 - `ContentFormat` - 内容形式，按 `platform` 区分朋友圈和小红书
 - `Product` - 内容形式下的具体产品，`sellingPoints` 在界面语义上作为产品关键词使用
 - `ProductAsset` - 本地文案或图片记忆，图片文件会本地存储
@@ -187,7 +208,8 @@ npm run worker:xhs:install
 
 ## Notes
 
-- 默认旧数据会归到 `朋友圈` 平台
+- 升级前已有数据会归入默认 `默认项目` 项目
 - `.local-memory/` 已加入 `.gitignore`，请把投喂文案和可打包导出的本地记忆放在这里
 - 使用 `npm run memory:import` 从 `.local-memory/reference-memory.json` 导入本地记忆
+- 使用 `npm run memory:project:import` 从 `.local-memory/project-memory.json` 导入项目级写作记忆
 - 版本号以 `package.json` 为准

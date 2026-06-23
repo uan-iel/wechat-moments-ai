@@ -2,6 +2,7 @@ import { ProductAssetType } from "@prisma/client";
 import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/prisma";
+import { getActiveProjectFromRequest } from "@/lib/projects";
 import { getFolderTag, saveProductAssetFile } from "@/lib/server/product-asset-files";
 
 export const dynamic = "force-dynamic";
@@ -12,6 +13,7 @@ type UploadMeta = {
 };
 
 export async function POST(request: Request) {
+  const project = await getActiveProjectFromRequest(request);
   const formData = await request.formData();
   const productId = String(formData.get("productId") || "").trim();
   const baseTitle = String(formData.get("title") || "").trim();
@@ -35,11 +37,16 @@ export async function POST(request: Request) {
       id: productId
     },
     select: {
-      id: true
+      id: true,
+      contentFormat: {
+        select: {
+          projectId: true
+        }
+      }
     }
   });
 
-  if (!product) {
+  if (!product || product.contentFormat.projectId !== project.id) {
     return NextResponse.json({ error: "产品不存在" }, { status: 404 });
   }
 

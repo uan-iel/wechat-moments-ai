@@ -2,17 +2,18 @@ import { NextResponse } from "next/server";
 
 import { normalizePlatform } from "@/lib/platforms";
 import { prisma } from "@/lib/prisma";
+import { getActiveProjectFromRequest } from "@/lib/projects";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
   const platform = new URL(request.url).searchParams.get("platform");
+  const project = await getActiveProjectFromRequest(request);
   const contentTasks = await prisma.contentTask.findMany({
-    where: platform
-      ? {
-          platform: normalizePlatform(platform)
-        }
-      : undefined,
+    where: {
+      projectId: project.id,
+      ...(platform ? { platform: normalizePlatform(platform) } : {})
+    },
     orderBy: {
       updatedAt: "desc"
     },

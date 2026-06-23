@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { analyzeProductImage } from "@/lib/ai/image-analyzer";
 import { prisma } from "@/lib/prisma";
+import { getActiveProjectFromRequest } from "@/lib/projects";
 
 const analyzeSchema = z.object({
   productAssetId: z.string().min(1)
@@ -12,14 +13,20 @@ const analyzeSchema = z.object({
 export async function POST(request: Request) {
   const json = await request.json();
   const parsed = analyzeSchema.safeParse(json);
+  const project = await getActiveProjectFromRequest(request);
 
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid image analysis payload" }, { status: 400 });
   }
 
-  const asset = await prisma.productAsset.findUnique({
+  const asset = await prisma.productAsset.findFirst({
     where: {
-      id: parsed.data.productAssetId
+      id: parsed.data.productAssetId,
+      product: {
+        contentFormat: {
+          projectId: project.id
+        }
+      }
     },
     include: {
       product: {

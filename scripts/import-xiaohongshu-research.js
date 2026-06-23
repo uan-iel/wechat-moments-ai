@@ -4,6 +4,8 @@ const path = require("node:path");
 const { ContentPlatform, PrismaClient } = require("@prisma/client");
 
 const prisma = new PrismaClient();
+const DEFAULT_PROJECT_SLUG = "default-project";
+const DEFAULT_PROJECT_NAME = "默认项目";
 
 function readJson(filePath) {
   const resolved = path.resolve(filePath);
@@ -140,9 +142,26 @@ function normalizeNote(note) {
   };
 }
 
-async function upsertCollection({ name, sourceType, sourceQuery, description }) {
+async function ensureProject(slug, name) {
+  return prisma.brandProject.upsert({
+    where: {
+      slug
+    },
+    update: {
+      name
+    },
+    create: {
+      slug,
+      name,
+      description: "本地项目。"
+    }
+  });
+}
+
+async function upsertCollection({ projectId, name, sourceType, sourceQuery, description }) {
   const existing = await prisma.researchCollection.findFirst({
     where: {
+      projectId,
       platform: ContentPlatform.XIAOHONGSHU,
       name
     }
@@ -161,6 +180,7 @@ async function upsertCollection({ name, sourceType, sourceQuery, description }) 
 
   return prisma.researchCollection.create({
     data: {
+      projectId,
       platform: ContentPlatform.XIAOHONGSHU,
       name,
       sourceType,
@@ -211,6 +231,8 @@ async function main() {
 
   const collectionName = cleanString(process.argv[3] || "") || path.basename(filePath, path.extname(filePath));
   const sourceQuery = cleanOptionalString(process.argv[4] || "");
+  const projectSlug = cleanString(process.argv[5] || process.env.MEMORY_PROJECT_SLUG || DEFAULT_PROJECT_SLUG);
+  const projectName = cleanString(process.env.MEMORY_PROJECT_NAME || DEFAULT_PROJECT_NAME);
   const payload = readJson(filePath);
   const notes = normalizeArray(payload).map(normalizeNote).filter(Boolean);
 
@@ -218,7 +240,9 @@ async function main() {
     throw new Error("No usable Xiaohongshu notes were found in the input file.");
   }
 
+  const project = await ensureProject(projectSlug, projectName);
   const collection = await upsertCollection({
+    projectId: project.id,
     name: collectionName,
     sourceType: "crawler-import",
     sourceQuery,
@@ -229,7 +253,7 @@ async function main() {
     await upsertNote(collection.id, note);
   }
 
-  console.log(`Imported ${notes.length} Xiaohongshu notes into collection "${collection.name}".`);
+  console.log(`Imported ${notes.length} Xiaohongshu notes into "${project.name}" collection "${collection.name}".`);
 }
 
 main()

@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { reviseMomentContent } from "@/lib/ai/content-reviser";
 import { prisma } from "@/lib/prisma";
+import { getActiveProjectFromRequest } from "@/lib/projects";
 
 const reviseContentSchema = z.object({
   contentTaskId: z.string().min(1),
@@ -14,6 +15,7 @@ const reviseContentSchema = z.object({
 export async function POST(request: Request) {
   const json = await request.json();
   const parsed = reviseContentSchema.safeParse(json);
+  const project = await getActiveProjectFromRequest(request);
 
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid revise payload" }, { status: 400 });
@@ -22,18 +24,22 @@ export async function POST(request: Request) {
   const contentVersion = await prisma.contentVersion.findFirst({
     where: {
       id: parsed.data.contentVersionId,
-      taskId: parsed.data.contentTaskId
+      taskId: parsed.data.contentTaskId,
+      task: {
+        projectId: project.id
+      }
     },
     include: {
       task: {
         select: {
-          platform: true
+          platform: true,
+          projectId: true
         }
       }
     }
   });
 
-  if (!contentVersion) {
+  if (!contentVersion || contentVersion.task.projectId !== project.id) {
     return NextResponse.json({ error: "Content version not found" }, { status: 404 });
   }
 
@@ -41,7 +47,11 @@ export async function POST(request: Request) {
     const revisedContent = await reviseMomentContent({
       platform: contentVersion.task.platform,
       content: contentVersion.content,
-      revisionInstruction: parsed.data.revisionInstruction
+      revisionInstruction: parsed.data.revisionInstruction,
+      platformStyleMemory:
+        contentVersion.task.platform === "XIAOHONGSHU"
+          ? project.xiaohongshuStyleMemory
+          : project.momentsStyleMemory
     });
     const versionCount = await prisma.contentVersion.count({
       where: {

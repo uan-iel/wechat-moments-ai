@@ -7,6 +7,7 @@ import { generateMomentContent } from "@/lib/ai/content-generator";
 import { buildResearchMemory } from "@/lib/ai/research-memory";
 import { prisma } from "@/lib/prisma";
 import { normalizePlatform } from "@/lib/platforms";
+import { getActiveProjectFromRequest } from "@/lib/projects";
 
 const generateContentSchema = z.object({
   contentTaskId: z.string().min(1).optional(),
@@ -35,6 +36,7 @@ function formatProductInfo(product: {
 export async function POST(request: Request) {
   const json = await request.json();
   const parsed = generateContentSchema.safeParse(json);
+  const project = await getActiveProjectFromRequest(request);
 
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid content generation payload" }, { status: 400 });
@@ -46,6 +48,7 @@ export async function POST(request: Request) {
         id: parsed.data.productId,
         contentFormatId: parsed.data.contentFormatId,
         contentFormat: {
+          projectId: project.id,
           platform: parsed.data.platform as ContentPlatform
         }
       },
@@ -94,6 +97,7 @@ export async function POST(request: Request) {
       normalizePlatform(parsed.data.platform) === "XIAOHONGSHU"
         ? await buildResearchMemory({
             platform: parsed.data.platform,
+            projectId: project.id,
             contentFormatName: product.contentFormat.name,
             productName: product.name,
             productKeywords: product.sellingPoints
@@ -112,6 +116,10 @@ export async function POST(request: Request) {
       referenceStyleId: parsed.data.referenceStyleId,
       wordCountRange: parsed.data.wordCountRange,
       styleTags: parsed.data.styleTags.map((tag) => tag.trim()).filter(Boolean),
+      platformStyleMemory:
+        normalizePlatform(parsed.data.platform) === "XIAOHONGSHU"
+          ? project.xiaohongshuStyleMemory
+          : project.momentsStyleMemory,
       assets: assets.map((asset) => ({
         id: asset.id,
         type: asset.type,
@@ -126,29 +134,44 @@ export async function POST(request: Request) {
       .map((asset) => asset.imageUrl)
       .filter((url): url is string => Boolean(url));
     const selectedAssetIds = relevantAssets.map((asset) => asset.id);
-    const contentTask = await prisma.contentTask.upsert({
-      where: {
-        id: parsed.data.contentTaskId ?? "__new_task__"
-      },
-      update: {
-        title: parsed.data.campaignGoal,
-        platform: parsed.data.platform,
-        campaignGoal: parsed.data.campaignGoal,
-        contentFormatId: product.contentFormatId,
-        productId: product.id,
-        selectedAssetIds,
-        status: ContentTaskStatus.DRAFT
-      },
-      create: {
-        title: parsed.data.campaignGoal,
-        platform: parsed.data.platform,
-        campaignGoal: parsed.data.campaignGoal,
-        contentFormatId: product.contentFormatId,
-        productId: product.id,
-        selectedAssetIds,
-        status: ContentTaskStatus.DRAFT
-      }
-    });
+    const taskData = {
+      title: parsed.data.campaignGoal,
+      platform: parsed.data.platform,
+      campaignGoal: parsed.data.campaignGoal,
+      contentFormatId: product.contentFormatId,
+      productId: product.id,
+      selectedAssetIds,
+      status: ContentTaskStatus.DRAFT
+    };
+    const contentTask = parsed.data.contentTaskId
+      ? await prisma.contentTask
+          .findFirst({
+            where: {
+              id: parsed.data.contentTaskId,
+              projectId: project.id
+            },
+            select: {
+              id: true
+            }
+          })
+          .then((existingTask) => {
+            if (!existingTask) {
+              throw new Error("Content task not found in current project");
+            }
+
+            return prisma.contentTask.update({
+              where: {
+                id: existingTask.id
+              },
+              data: taskData
+            });
+          })
+      : await prisma.contentTask.create({
+          data: {
+            ...taskData,
+            projectId: project.id
+          }
+        });
     const versionCount = await prisma.contentVersion.count({
       where: {
         taskId: contentTask.id

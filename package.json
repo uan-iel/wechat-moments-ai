@@ -1,6 +1,6 @@
 {
   "name": "wechat-moments-ai",
-  "version": "2.0.6",
+  "version": "2.0.7",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -11,6 +11,7 @@
     "dev:panel": "node scripts/register-and-start.js",
     "dev:panel:install": "node scripts/install-dev-dashboard-entry.js",
     "worker:xhs:install": "node scripts/setup-xhs-worker.js",
+    "memory:project:import": "node scripts/import-project-memory.js",
     "memory:import": "node scripts/import-local-memory.js",
     "memory:export": "node scripts/export-local-memory.js",
     "research:import:xhs": "node scripts/import-xiaohongshu-research.js",

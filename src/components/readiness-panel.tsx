@@ -3,6 +3,7 @@ import { CheckCircle2, CircleAlert, CircleDashed } from "lucide-react";
 
 import { getAiModelSettingsForClient } from "@/lib/ai/model-config";
 import { prisma } from "@/lib/prisma";
+import { getActiveProjectFromRequest } from "@/lib/projects";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
@@ -21,16 +22,49 @@ const stateIcon = {
 };
 
 export async function ReadinessPanel() {
+  const project = await getActiveProjectFromRequest();
   const [modelSettings, formatCount, productCount, assetCount, draftCount, finalizedCount, researchCollectionCount, researchNoteCount, researchInsightCount] = await Promise.all([
     getAiModelSettingsForClient(),
-    prisma.contentFormat.count(),
-    prisma.product.count(),
-    prisma.productAsset.count(),
-    prisma.contentTask.count({ where: { status: ContentTaskStatus.DRAFT } }),
-    prisma.contentTask.count({ where: { status: ContentTaskStatus.FINALIZED } }),
-    prisma.researchCollection.count(),
-    prisma.researchNote.count(),
-    prisma.researchInsight.count()
+    prisma.contentFormat.count({
+      where: {
+        projectId: project.id
+      }
+    }),
+    prisma.product.count({
+      where: {
+        contentFormat: {
+          projectId: project.id
+        }
+      }
+    }),
+    prisma.productAsset.count({
+      where: {
+        product: {
+          contentFormat: {
+            projectId: project.id
+          }
+        }
+      }
+    }),
+    prisma.contentTask.count({ where: { projectId: project.id, status: ContentTaskStatus.DRAFT } }),
+    prisma.contentTask.count({ where: { projectId: project.id, status: ContentTaskStatus.FINALIZED } }),
+    prisma.researchCollection.count({
+      where: {
+        projectId: project.id
+      }
+    }),
+    prisma.researchNote.count({
+      where: {
+        collection: {
+          projectId: project.id
+        }
+      }
+    }),
+    prisma.researchInsight.count({
+      where: {
+        projectId: project.id
+      }
+    })
   ]);
   const modelReady = Boolean(modelSettings.llm.hasApiKey || process.env.OPENAI_API_KEY || process.env.DEEPSEEK_API_KEY);
   const items = [

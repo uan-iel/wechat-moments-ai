@@ -123,6 +123,7 @@ function normalizeNote(note: Record<string, unknown>) {
 }
 
 async function upsertCollection(prisma: ImportablePrisma, input: {
+  projectId: string;
   name: string;
   sourceType: string;
   sourceQuery?: string | null;
@@ -130,6 +131,7 @@ async function upsertCollection(prisma: ImportablePrisma, input: {
 }) {
   const existing = await prisma.researchCollection.findFirst({
     where: {
+      projectId: input.projectId,
       platform: ContentPlatform.XIAOHONGSHU,
       name: input.name
     }
@@ -148,6 +150,7 @@ async function upsertCollection(prisma: ImportablePrisma, input: {
 
   return prisma.researchCollection.create({
     data: {
+      projectId: input.projectId,
       platform: ContentPlatform.XIAOHONGSHU,
       name: input.name,
       sourceType: input.sourceType,
@@ -190,6 +193,7 @@ async function upsertNote(prisma: ImportablePrisma, collectionId: string, note: 
 }
 
 export async function importXiaohongshuResearchPayload(prisma: ImportablePrisma, input: {
+  projectId: string;
   payload: unknown;
   collectionName: string;
   sourceQuery?: string | null;
@@ -204,6 +208,7 @@ export async function importXiaohongshuResearchPayload(prisma: ImportablePrisma,
   }
 
   const collection = await upsertCollection(prisma, {
+    projectId: input.projectId,
     name: input.collectionName,
     sourceType: input.sourceType || "crawler-import",
     sourceQuery: input.sourceQuery,

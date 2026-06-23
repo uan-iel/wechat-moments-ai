@@ -10,6 +10,7 @@ import { prisma } from "@/lib/prisma";
 import { mediaCrawlerRequest, startMediaCrawlerWorker } from "@/lib/research/media-crawler";
 import { importXiaohongshuResearchPayload } from "@/lib/research/xiaohongshu-import";
 import { analyzeXiaohongshuResearch } from "@/lib/research/xiaohongshu-research";
+import { getActiveProjectFromRequest } from "@/lib/projects";
 
 export const dynamic = "force-dynamic";
 
@@ -68,6 +69,7 @@ async function importLatestMediaCrawlerResult(jobId: string, autoAnalyze: boolea
   )) as string;
   const payload = JSON.parse(rawText);
   const imported = await importXiaohongshuResearchPayload(prisma, {
+    projectId: job.projectId,
     payload,
     collectionName: job.collectionName,
     sourceQuery: job.query,
@@ -128,6 +130,7 @@ async function importLatestMediaCrawlerResult(jobId: string, autoAnalyze: boolea
 
   await prisma.researchInsight.create({
     data: {
+      projectId: job.projectId,
       collectionId: collection.id,
       platform: ContentPlatform.XIAOHONGSHU,
       scopeKey,
@@ -183,11 +186,13 @@ async function monitorCrawlJob(jobId: string, autoAnalyze: boolean) {
   }
 }
 
-export async function GET() {
+export async function GET(request: Request) {
+  const project = await getActiveProjectFromRequest(request);
   const [status, jobs] = await Promise.all([
     mediaCrawlerRequest("/api/crawler/status").catch(() => ({ status: "idle" })),
     prisma.researchCrawlJob.findMany({
       where: {
+        projectId: project.id,
         platform: ContentPlatform.XIAOHONGSHU
       },
       orderBy: {
@@ -206,6 +211,7 @@ export async function GET() {
 export async function POST(request: Request) {
   const body = await request.json().catch(() => ({}));
   const parsed = crawlSchema.safeParse(body);
+  const project = await getActiveProjectFromRequest(request);
 
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid crawl payload" }, { status: 400 });
@@ -223,6 +229,7 @@ export async function POST(request: Request) {
 
   const job = await prisma.researchCrawlJob.create({
     data: {
+      projectId: project.id,
       platform: ContentPlatform.XIAOHONGSHU,
       collectionName: parsed.data.collectionName.trim(),
       query: parsed.data.query?.trim() || null,
@@ -266,6 +273,7 @@ export async function POST(request: Request) {
 export async function DELETE(request: Request) {
   const { searchParams } = new URL(request.url);
   const jobId = searchParams.get("jobId")?.trim();
+  const project = await getActiveProjectFromRequest(request);
 
   if (!jobId) {
     return NextResponse.json({ error: "Missing jobId" }, { status: 400 });
@@ -274,6 +282,7 @@ export async function DELETE(request: Request) {
   const job = await prisma.researchCrawlJob.findFirst({
     where: {
       id: jobId,
+      projectId: project.id,
       platform: ContentPlatform.XIAOHONGSHU
     },
     select: {

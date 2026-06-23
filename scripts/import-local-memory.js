@@ -7,6 +7,8 @@ const prisma = new PrismaClient();
 
 const defaultMemoryPath = path.join(process.cwd(), ".local-memory", "reference-memory.json");
 const memoryPath = process.argv[2] ? path.resolve(process.argv[2]) : defaultMemoryPath;
+const DEFAULT_PROJECT_SLUG = "default-project";
+const DEFAULT_PROJECT_NAME = "默认项目";
 
 function normalizePlatform(value) {
   return value === "XIAOHONGSHU" || value === "xiaohongshu"
@@ -36,10 +38,32 @@ function readMemoryFile() {
     throw new Error("Local memory file must contain a formats array.");
   }
 
-  return parsed.formats;
+  return {
+    projectSlug: String(parsed.projectSlug || process.env.MEMORY_PROJECT_SLUG || DEFAULT_PROJECT_SLUG).trim(),
+    projectName: String(parsed.projectName || process.env.MEMORY_PROJECT_NAME || DEFAULT_PROJECT_NAME).trim(),
+    projectDescription: parsed.projectDescription?.trim() || null,
+    formats: parsed.formats
+  };
 }
 
-async function upsertFormat(entry) {
+async function ensureProject(input) {
+  return prisma.brandProject.upsert({
+    where: {
+      slug: input.projectSlug
+    },
+    update: {
+      name: input.projectName || input.projectSlug,
+      description: input.projectDescription
+    },
+    create: {
+      name: input.projectName || input.projectSlug,
+      slug: input.projectSlug,
+      description: input.projectDescription
+    }
+  });
+}
+
+async function upsertFormat(projectId, entry) {
   const platform = normalizePlatform(entry.platform);
   const name = String(entry.name || "").trim();
 
@@ -49,6 +73,7 @@ async function upsertFormat(entry) {
 
   const existingFormat = await prisma.contentFormat.findFirst({
     where: {
+      projectId,
       platform,
       name
     }
@@ -64,6 +89,7 @@ async function upsertFormat(entry) {
       })
     : prisma.contentFormat.create({
         data: {
+          projectId,
           platform,
           name,
           description: entry.description?.trim() || null,
@@ -144,10 +170,11 @@ async function upsertMemoryAsset(productId, entry, index) {
 }
 
 async function main() {
-  const formats = readMemoryFile();
+  const memory = readMemoryFile();
+  const project = await ensureProject(memory);
 
-  for (const formatEntry of formats) {
-    const format = await upsertFormat(formatEntry);
+  for (const formatEntry of memory.formats) {
+    const format = await upsertFormat(project.id, formatEntry);
 
     for (const productEntry of formatEntry.products || []) {
       const product = await upsertProduct(format.id, productEntry);
@@ -158,7 +185,7 @@ async function main() {
     }
   }
 
-  console.log(`Imported local memory from ${memoryPath}`);
+  console.log(`Imported local memory from ${memoryPath} into project "${project.name}".`);
 }
 
 main()

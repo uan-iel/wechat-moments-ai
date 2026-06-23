@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { ProjectSwitcher } from "@/components/project-switcher";
 
 const navItems = [
   { href: "/", label: "总览", icon: Home },
@@ -65,7 +66,11 @@ export function AppShell({
             </span>
           </Link>
 
-          <nav className="mt-8 space-y-1">
+          <div className="mt-5">
+            <ProjectSwitcher />
+          </div>
+
+          <nav className="mt-6 space-y-1">
             {navItems.map((item) => {
               const active =
                 item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);

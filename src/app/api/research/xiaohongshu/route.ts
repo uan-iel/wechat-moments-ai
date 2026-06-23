@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { analyzeXiaohongshuResearch } from "@/lib/research/xiaohongshu-research";
 import { prisma } from "@/lib/prisma";
+import { getActiveProjectFromRequest } from "@/lib/projects";
 
 export const dynamic = "force-dynamic";
 
@@ -13,9 +14,11 @@ const analyzeSchema = z.object({
   scopeKey: z.string().min(1).optional()
 });
 
-export async function GET() {
+export async function GET(request: Request) {
+  const project = await getActiveProjectFromRequest(request);
   const collections = await prisma.researchCollection.findMany({
     where: {
+      projectId: project.id,
       platform: ContentPlatform.XIAOHONGSHU
     },
     include: {
@@ -61,6 +64,7 @@ export async function GET() {
 export async function POST(request: Request) {
   const body = await request.json().catch(() => ({}));
   const parsed = analyzeSchema.safeParse(body);
+  const project = await getActiveProjectFromRequest(request);
 
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid research analyze payload" }, { status: 400 });
@@ -68,6 +72,7 @@ export async function POST(request: Request) {
 
   const collection = await prisma.researchCollection.findFirst({
     where: {
+      projectId: project.id,
       platform: ContentPlatform.XIAOHONGSHU,
       ...(parsed.data.collectionId
         ? {
@@ -112,6 +117,7 @@ export async function POST(request: Request) {
 
   const saved = await prisma.researchInsight.create({
     data: {
+      projectId: project.id,
       collectionId: collection.id,
       platform: ContentPlatform.XIAOHONGSHU,
       scopeKey,
@@ -135,6 +141,7 @@ export async function POST(request: Request) {
 export async function DELETE(request: Request) {
   const { searchParams } = new URL(request.url);
   const collectionId = searchParams.get("collectionId")?.trim();
+  const project = await getActiveProjectFromRequest(request);
 
   if (!collectionId) {
     return NextResponse.json({ error: "Missing collectionId" }, { status: 400 });
@@ -143,6 +150,7 @@ export async function DELETE(request: Request) {
   const collection = await prisma.researchCollection.findFirst({
     where: {
       id: collectionId,
+      projectId: project.id,
       platform: ContentPlatform.XIAOHONGSHU
     },
     select: {
@@ -158,11 +166,13 @@ export async function DELETE(request: Request) {
   const [deletedInsights, deletedJobs] = await prisma.$transaction([
     prisma.researchInsight.deleteMany({
       where: {
+        projectId: project.id,
         collectionId: collection.id
       }
     }),
     prisma.researchCrawlJob.deleteMany({
       where: {
+        projectId: project.id,
         platform: ContentPlatform.XIAOHONGSHU,
         collectionName: collection.name
       }

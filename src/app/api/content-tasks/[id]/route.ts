@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { prisma } from "@/lib/prisma";
+import { getActiveProjectFromRequest } from "@/lib/projects";
 
 export const dynamic = "force-dynamic";
 
@@ -17,10 +18,12 @@ type RouteContext = {
   };
 };
 
-export async function GET(_request: Request, { params }: RouteContext) {
-  const contentTask = await prisma.contentTask.findUnique({
+export async function GET(request: Request, { params }: RouteContext) {
+  const project = await getActiveProjectFromRequest(request);
+  const contentTask = await prisma.contentTask.findFirst({
     where: {
-      id: params.id
+      id: params.id,
+      projectId: project.id
     },
     select: {
       id: true,
@@ -94,16 +97,34 @@ export async function GET(_request: Request, { params }: RouteContext) {
 export async function PATCH(request: Request, { params }: RouteContext) {
   const json = await request.json();
   const parsed = updateContentTaskSchema.safeParse(json);
+  const project = await getActiveProjectFromRequest(request);
 
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid content task payload" }, { status: 400 });
+  }
+
+  const existingTask = await prisma.contentTask.findFirst({
+    where: {
+      id: params.id,
+      projectId: project.id
+    },
+    select: {
+      id: true
+    }
+  });
+
+  if (!existingTask) {
+    return NextResponse.json({ error: "Content task not found" }, { status: 404 });
   }
 
   if (parsed.data.finalizedVersionId) {
     const version = await prisma.contentVersion.findFirst({
       where: {
         id: parsed.data.finalizedVersionId,
-        taskId: params.id
+        taskId: params.id,
+        task: {
+          projectId: project.id
+        }
       },
       select: {
         id: true
@@ -117,7 +138,10 @@ export async function PATCH(request: Request, { params }: RouteContext) {
     await prisma.$transaction([
       prisma.contentVersion.updateMany({
         where: {
-          taskId: params.id
+          taskId: params.id,
+          task: {
+            projectId: project.id
+          }
         },
         data: {
           isFinal: false
@@ -153,10 +177,12 @@ export async function PATCH(request: Request, { params }: RouteContext) {
   return NextResponse.json({ contentTask });
 }
 
-export async function DELETE(_request: Request, { params }: RouteContext) {
-  await prisma.contentTask.delete({
+export async function DELETE(request: Request, { params }: RouteContext) {
+  const project = await getActiveProjectFromRequest(request);
+  await prisma.contentTask.deleteMany({
     where: {
-      id: params.id
+      id: params.id,
+      projectId: project.id
     }
   });
 

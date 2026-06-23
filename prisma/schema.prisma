@@ -7,8 +7,26 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model BrandProject {
+  id                       String               @id @default(cuid())
+  name                     String
+  slug                     String               @unique
+  description              String?
+  momentsStyleMemory       String?
+  xiaohongshuStyleMemory   String?
+  contentFormats           ContentFormat[]
+  contentTasks             ContentTask[]
+  researchCollections      ResearchCollection[]
+  researchInsights         ResearchInsight[]
+  researchCrawlJobs        ResearchCrawlJob[]
+  createdAt                DateTime             @default(now())
+  updatedAt                DateTime             @updatedAt
+}
+
 model ContentFormat {
   id           String        @id @default(cuid())
+  projectId    String
+  project      BrandProject  @relation(fields: [projectId], references: [id], onDelete: Cascade)
   platform     ContentPlatform @default(MOMENTS)
   name         String
   description  String?
@@ -17,6 +35,8 @@ model ContentFormat {
   contentTasks ContentTask[]
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
+
+  @@index([projectId])
 }
 
 model Product {
@@ -53,6 +73,8 @@ model ProductAsset {
 
 model ContentTask {
   id               String                 @id @default(cuid())
+  projectId        String
+  project          BrandProject           @relation(fields: [projectId], references: [id], onDelete: Cascade)
   platform         ContentPlatform        @default(MOMENTS)
   title            String
   campaignGoal     String
@@ -71,6 +93,7 @@ model ContentTask {
   @@index([productId])
   @@index([status])
   @@index([platform])
+  @@index([projectId])
 }
 
 model ContentVersion {
@@ -106,6 +129,8 @@ model PublishCalendarEntry {
 
 model ResearchCollection {
   id          String           @id @default(cuid())
+  projectId   String
+  project     BrandProject     @relation(fields: [projectId], references: [id], onDelete: Cascade)
   platform    ContentPlatform  @default(XIAOHONGSHU)
   name        String
   sourceType  String
@@ -117,6 +142,7 @@ model ResearchCollection {
   updatedAt   DateTime         @updatedAt
 
   @@index([platform])
+  @@index([projectId])
 }
 
 model ResearchNote {
@@ -147,6 +173,8 @@ model ResearchNote {
 
 model ResearchInsight {
   id              String              @id @default(cuid())
+  projectId       String
+  project         BrandProject        @relation(fields: [projectId], references: [id], onDelete: Cascade)
   collectionId    String?
   collection      ResearchCollection? @relation(fields: [collectionId], references: [id], onDelete: SetNull)
   platform        ContentPlatform     @default(XIAOHONGSHU)
@@ -160,10 +188,13 @@ model ResearchInsight {
 
   @@index([platform])
   @@index([scopeKey])
+  @@index([projectId])
 }
 
 model ResearchCrawlJob {
   id             String              @id @default(cuid())
+  projectId      String
+  project        BrandProject        @relation(fields: [projectId], references: [id], onDelete: Cascade)
   platform       ContentPlatform     @default(XIAOHONGSHU)
   collectionName String
   query          String?
@@ -181,6 +212,7 @@ model ResearchCrawlJob {
   @@index([platform])
   @@index([status])
   @@index([createdAt])
+  @@index([projectId])
 }
 
 model AppSetting {

@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { prisma } from "@/lib/prisma";
+import { getActiveProjectFromRequest } from "@/lib/projects";
 
 const createVersionSchema = z.object({
   content: z.string().min(1),
@@ -19,6 +20,7 @@ type RouteContext = {
 export async function POST(request: Request, { params }: RouteContext) {
   const json = await request.json();
   const parsed = createVersionSchema.safeParse(json);
+  const project = await getActiveProjectFromRequest(request);
 
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid content version payload" }, { status: 400 });
@@ -29,11 +31,12 @@ export async function POST(request: Request, { params }: RouteContext) {
       id: params.id
     },
     select: {
-      id: true
+      id: true,
+      projectId: true
     }
   });
 
-  if (!task) {
+  if (!task || task.projectId !== project.id) {
     return NextResponse.json({ error: "Content task not found" }, { status: 404 });
   }
 
@@ -65,6 +68,7 @@ export async function POST(request: Request, { params }: RouteContext) {
 
 export async function DELETE(request: Request, { params }: RouteContext) {
   const versionId = new URL(request.url).searchParams.get("versionId");
+  const project = await getActiveProjectFromRequest(request);
 
   if (!versionId) {
     return NextResponse.json({ error: "Content version id is required" }, { status: 400 });
@@ -73,7 +77,10 @@ export async function DELETE(request: Request, { params }: RouteContext) {
   const version = await prisma.contentVersion.findFirst({
     where: {
       id: versionId,
-      taskId: params.id
+      taskId: params.id,
+      task: {
+        projectId: project.id
+      }
     },
     select: {
       id: true,

@@ -64,14 +64,16 @@ export async function reviseMomentContent(input: {
   platform?: "MOMENTS" | "XIAOHONGSHU";
   content: string;
   revisionInstruction: string;
+  platformStyleMemory?: string | null;
 }) {
   const model = await createChatModel({ temperature: 0.65 });
   const platform = normalizePlatform(input.platform);
+  const platformStyleMemory = input.platformStyleMemory?.trim() || getPlatformStyleMemory(platform);
   const chain = revisePrompt.pipe(model).pipe(new StringOutputParser());
   const revisedBody = await chain.invoke({
     ...input,
     platformLabel: platform === "XIAOHONGSHU" ? "小红书" : "朋友圈",
-    platformStyleMemory: getPlatformStyleMemory(platform),
+    platformStyleMemory,
     platformInstruction:
       platform === "XIAOHONGSHU"
         ? [
@@ -92,7 +94,7 @@ export async function reviseMomentContent(input: {
   const { title: existingTitle } = splitXiaohongshuContent(input.content);
   const titleChain = xiaohongshuReviseTitlePrompt.pipe(model).pipe(new StringOutputParser());
   const revisedTitle = await titleChain.invoke({
-    platformStyleMemory: getPlatformStyleMemory(platform),
+    platformStyleMemory,
     content: input.content,
     revisionInstruction: input.revisionInstruction,
     existingTitle

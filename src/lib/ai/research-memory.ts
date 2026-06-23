@@ -22,6 +22,7 @@ function overlapScore(referenceTokens: string[], candidateText: string) {
 
 export async function buildResearchMemory(input: {
   platform?: "MOMENTS" | "XIAOHONGSHU";
+  projectId?: string;
   contentFormatName?: string;
   productName?: string;
   productKeywords?: string[];
@@ -33,7 +34,8 @@ export async function buildResearchMemory(input: {
   const platform = ContentPlatform.XIAOHONGSHU;
   const candidateInsights = await prisma.researchInsight.findMany({
     where: {
-      platform
+      platform,
+      ...(input.projectId ? { projectId: input.projectId } : {})
     },
     orderBy: {
       updatedAt: "desc"

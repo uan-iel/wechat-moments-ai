@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { prisma } from "@/lib/prisma";
+import { getActiveProjectFromRequest } from "@/lib/projects";
 import { removeProductAssetFile } from "@/lib/server/product-asset-files";
 
 export const dynamic = "force-dynamic";
@@ -13,8 +14,14 @@ const productSchema = z.object({
   sellingPoints: z.array(z.string()).default([])
 });
 
-export async function GET() {
+export async function GET(request: Request) {
+  const project = await getActiveProjectFromRequest(request);
   const products = await prisma.product.findMany({
+    where: {
+      contentFormat: {
+        projectId: project.id
+      }
+    },
     orderBy: {
       updatedAt: "desc"
     },
@@ -34,9 +41,24 @@ export async function GET() {
 export async function POST(request: Request) {
   const json = await request.json();
   const parsed = productSchema.safeParse(json);
+  const project = await getActiveProjectFromRequest(request);
 
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid product payload" }, { status: 400 });
+  }
+
+  const contentFormat = await prisma.contentFormat.findFirst({
+    where: {
+      id: parsed.data.contentFormatId,
+      projectId: project.id
+    },
+    select: {
+      id: true
+    }
+  });
+
+  if (!contentFormat) {
+    return NextResponse.json({ error: "Content format not found" }, { status: 404 });
   }
 
   const product = await prisma.product.create({
@@ -57,6 +79,7 @@ export async function POST(request: Request) {
 
 export async function DELETE(request: Request) {
   const id = new URL(request.url).searchParams.get("id");
+  const project = await getActiveProjectFromRequest(request);
 
   if (!id) {
     return NextResponse.json({ error: "Product id is required" }, { status: 400 });
@@ -64,7 +87,12 @@ export async function DELETE(request: Request) {
 
   const assets = await prisma.productAsset.findMany({
     where: {
-      productId: id
+      productId: id,
+      product: {
+        contentFormat: {
+          projectId: project.id
+        }
+      }
     },
     select: {
       id: true,
@@ -76,6 +104,7 @@ export async function DELETE(request: Request) {
   if (assetIds.size) {
     const tasks = await prisma.contentTask.findMany({
       where: {
+        projectId: project.id,
         selectedAssetIds: {
           hasSome: Array.from(assetIds)
         }
@@ -100,9 +129,12 @@ export async function DELETE(request: Request) {
     );
   }
 
-  await prisma.product.delete({
+  await prisma.product.deleteMany({
     where: {
-      id
+      id,
+      contentFormat: {
+        projectId: project.id
+      }
     }
   });
 

@@ -388,6 +388,7 @@ export async function generateMomentContent(input: {
   referenceStyleId?: string;
   wordCountRange?: string;
   styleTags?: string[];
+  platformStyleMemory?: string | null;
   assets: ProductAssetForGeneration[];
 }) {
   const relevantAssets = await retrieveRelevantAssets({
@@ -401,10 +402,11 @@ export async function generateMomentContent(input: {
   const model = await createChatModel({ temperature: 0.75 });
   const chain = contentPrompt.pipe(model).pipe(new StringOutputParser());
   const platform = normalizePlatform(input.platform);
+  const platformStyleMemory = input.platformStyleMemory?.trim() || getPlatformStyleMemory(platform);
   const basePromptInput = {
     platformLabel: normalizePlatform(input.platform) === "XIAOHONGSHU" ? "小红书" : "朋友圈",
     platformInstruction: buildPlatformInstruction(input.platform),
-    platformStyleMemory: getPlatformStyleMemory(platform),
+    platformStyleMemory,
     referenceInstruction: buildPlatformReferenceInstruction(platform, input.referenceStyleId),
     researchMemory: input.researchMemory || "暂无外部平台研究洞察，优先依赖当前产品与本地记忆生成。",
     campaignGoal: input.campaignGoal,
@@ -423,7 +425,7 @@ export async function generateMomentContent(input: {
   if (platform === "XIAOHONGSHU") {
     const titleChain = xiaohongshuTitlePrompt.pipe(model).pipe(new StringOutputParser());
     const generatedTitle = await titleChain.invoke({
-      platformStyleMemory: getPlatformStyleMemory(platform),
+      platformStyleMemory,
       referenceInstruction: buildPlatformReferenceInstruction(platform, input.referenceStyleId),
       formatGuide: input.formatGuide,
       productInfo: input.productInfo,

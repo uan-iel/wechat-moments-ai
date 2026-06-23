@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { normalizePlatform } from "@/lib/platforms";
 import { prisma } from "@/lib/prisma";
+import { getActiveProjectFromRequest } from "@/lib/projects";
 import { removeProductAssetFile } from "@/lib/server/product-asset-files";
 
 export const dynamic = "force-dynamic";
@@ -16,8 +17,10 @@ const contentFormatSchema = z.object({
 
 export async function GET(request: Request) {
   const platform = normalizePlatform(new URL(request.url).searchParams.get("platform"));
+  const project = await getActiveProjectFromRequest(request);
   const contentFormats = await prisma.contentFormat.findMany({
     where: {
+      projectId: project.id,
       platform
     },
     orderBy: {
@@ -58,6 +61,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const json = await request.json();
   const parsed = contentFormatSchema.safeParse(json);
+  const project = await getActiveProjectFromRequest(request);
 
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid content format payload" }, { status: 400 });
@@ -65,6 +69,7 @@ export async function POST(request: Request) {
 
   const contentFormat = await prisma.contentFormat.create({
     data: {
+      projectId: project.id,
       platform: parsed.data.platform,
       name: parsed.data.name.trim(),
       description: parsed.data.description?.trim() || null,
@@ -80,6 +85,7 @@ export async function POST(request: Request) {
 
 export async function DELETE(request: Request) {
   const id = new URL(request.url).searchParams.get("id");
+  const project = await getActiveProjectFromRequest(request);
 
   if (!id) {
     return NextResponse.json({ error: "Content format id is required" }, { status: 400 });
@@ -88,7 +94,10 @@ export async function DELETE(request: Request) {
   const assets = await prisma.productAsset.findMany({
     where: {
       product: {
-        contentFormatId: id
+        contentFormatId: id,
+        contentFormat: {
+          projectId: project.id
+        }
       }
     },
     select: {
@@ -101,6 +110,7 @@ export async function DELETE(request: Request) {
   if (assetIds.size) {
     const tasks = await prisma.contentTask.findMany({
       where: {
+        projectId: project.id,
         selectedAssetIds: {
           hasSome: Array.from(assetIds)
         }
@@ -125,11 +135,16 @@ export async function DELETE(request: Request) {
     );
   }
 
-  await prisma.contentFormat.delete({
+  const result = await prisma.contentFormat.deleteMany({
     where: {
-      id
+      id,
+      projectId: project.id
     }
   });
+
+  if (result.count === 0) {
+    return NextResponse.json({ error: "Content format not found" }, { status: 404 });
+  }
 
   await Promise.all(assets.map((asset) => removeProductAssetFile(asset.imageUrl)));
 

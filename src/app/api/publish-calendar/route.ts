@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { normalizePlatform } from "@/lib/platforms";
 import { prisma } from "@/lib/prisma";
+import { getActiveProjectFromRequest } from "@/lib/projects";
 
 export const dynamic = "force-dynamic";
 
@@ -17,14 +18,14 @@ const calendarEntrySchema = z.object({
 
 export async function GET(request: Request) {
   const platform = new URL(request.url).searchParams.get("platform");
+  const project = await getActiveProjectFromRequest(request);
   const entries = await prisma.publishCalendarEntry.findMany({
-    where: platform
-      ? {
-          task: {
-            platform: normalizePlatform(platform)
-          }
-        }
-      : undefined,
+    where: {
+      task: {
+        projectId: project.id,
+        ...(platform ? { platform: normalizePlatform(platform) } : {})
+      }
+    },
     orderBy: {
       plannedDate: "asc"
     },
@@ -60,11 +61,10 @@ export async function GET(request: Request) {
     }
   });
   const tasks = await prisma.contentTask.findMany({
-    where: platform
-      ? {
-          platform: normalizePlatform(platform)
-        }
-      : undefined,
+    where: {
+      projectId: project.id,
+      ...(platform ? { platform: normalizePlatform(platform) } : {})
+    },
     orderBy: {
       updatedAt: "desc"
     },
@@ -93,9 +93,24 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const json = await request.json();
   const parsed = calendarEntrySchema.safeParse(json);
+  const project = await getActiveProjectFromRequest(request);
 
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid calendar entry payload" }, { status: 400 });
+  }
+
+  const task = await prisma.contentTask.findFirst({
+    where: {
+      id: parsed.data.taskId,
+      projectId: project.id
+    },
+    select: {
+      id: true
+    }
+  });
+
+  if (!task) {
+    return NextResponse.json({ error: "Content task not found" }, { status: 404 });
   }
 
   const entry = await prisma.publishCalendarEntry.create({
@@ -113,14 +128,18 @@ export async function POST(request: Request) {
 
 export async function DELETE(request: Request) {
   const id = new URL(request.url).searchParams.get("id");
+  const project = await getActiveProjectFromRequest(request);
 
   if (!id) {
     return NextResponse.json({ error: "Calendar entry id is required" }, { status: 400 });
   }
 
-  await prisma.publishCalendarEntry.delete({
+  await prisma.publishCalendarEntry.deleteMany({
     where: {
-      id
+      id,
+      task: {
+        projectId: project.id
+      }
     }
   });
 
