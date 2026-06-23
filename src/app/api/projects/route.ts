@@ -50,11 +50,27 @@ export async function GET(request: Request) {
       }
     }
   });
+  const activeProjectForClient = projects.find((project) => project.id === activeProject.id) ?? {
+    id: activeProject.id,
+    name: activeProject.name,
+    slug: activeProject.slug,
+    description: activeProject.description,
+    createdAt: activeProject.createdAt,
+    updatedAt: activeProject.updatedAt,
+    _count: {
+      contentFormats: 0,
+      contentTasks: 0,
+      researchCollections: 0
+    }
+  };
 
-  return NextResponse.json({
-    activeProject,
+  const response = NextResponse.json({
+    activeProject: activeProjectForClient,
     projects
   });
+  response.cookies.set(ACTIVE_PROJECT_COOKIE, activeProject.id, projectCookieOptions());
+
+  return response;
 }
 
 export async function POST(request: Request) {

@@ -22,36 +22,113 @@ export async function ensureDefaultProject() {
   });
 }
 
+async function projectContentScore(projectId: string) {
+  const [contentFormats, contentTasks, researchCollections] = await Promise.all([
+    prisma.contentFormat.count({
+      where: {
+        projectId
+      }
+    }),
+    prisma.contentTask.count({
+      where: {
+        projectId
+      }
+    }),
+    prisma.researchCollection.count({
+      where: {
+        projectId
+      }
+    })
+  ]);
+
+  return contentFormats + contentTasks + researchCollections;
+}
+
+async function findMostPopulatedProject() {
+  const projects = await prisma.brandProject.findMany({
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      description: true,
+      momentsStyleMemory: true,
+      xiaohongshuStyleMemory: true,
+      createdAt: true,
+      updatedAt: true,
+      _count: {
+        select: {
+          contentFormats: true,
+          contentTasks: true,
+          researchCollections: true
+        }
+      }
+    }
+  });
+  const ranked = projects
+    .map((project) => ({
+      ...project,
+      score: project._count.contentFormats + project._count.contentTasks + project._count.researchCollections
+    }))
+    .filter((project) => project.score > 0)
+    .sort((left, right) => right.score - left.score || right.updatedAt.getTime() - left.updatedAt.getTime());
+
+  if (!ranked[0]) {
+    return null;
+  }
+
+  const { _count, score, ...project } = ranked[0];
+  void _count;
+  void score;
+  return project;
+}
+
 export async function getActiveProjectFromRequest(request?: Request): Promise<BrandProject> {
   const url = request ? new URL(request.url) : null;
   const queryProjectId = url?.searchParams.get("projectId")?.trim();
   const queryProjectSlug = url?.searchParams.get("projectSlug")?.trim();
   const cookieProjectId = cookies().get(ACTIVE_PROJECT_COOKIE)?.value?.trim();
 
-  const project =
-    (queryProjectId
-      ? await prisma.brandProject.findUnique({
-          where: {
-            id: queryProjectId
-          }
-        })
-      : null) ||
-    (queryProjectSlug
-      ? await prisma.brandProject.findUnique({
-          where: {
-            slug: queryProjectSlug
-          }
-        })
-      : null) ||
-    (cookieProjectId
-      ? await prisma.brandProject.findUnique({
-          where: {
-            id: cookieProjectId
-          }
-        })
-      : null);
+  if (queryProjectId) {
+    const project = await prisma.brandProject.findUnique({
+      where: {
+        id: queryProjectId
+      }
+    });
 
-  return project ?? ensureDefaultProject();
+    if (project) {
+      return project;
+    }
+  }
+
+  if (queryProjectSlug) {
+    const project = await prisma.brandProject.findUnique({
+      where: {
+        slug: queryProjectSlug
+      }
+    });
+
+    if (project) {
+      return project;
+    }
+  }
+
+  if (cookieProjectId) {
+    const project = await prisma.brandProject.findUnique({
+      where: {
+        id: cookieProjectId
+      }
+    });
+
+    if (project) {
+      const shouldPreferPopulatedProject =
+        project.slug === DEFAULT_PROJECT_SLUG && (await projectContentScore(project.id)) === 0;
+      const preferredProject = shouldPreferPopulatedProject ? await findMostPopulatedProject() : null;
+
+      return preferredProject ?? project;
+    }
+  }
+
+  return (await findMostPopulatedProject()) ?? ensureDefaultProject();
 }
 
 export function projectCookieOptions() {
