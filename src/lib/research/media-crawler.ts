@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import os from "node:os";
 import path from "node:path";
 
 import { getAppSetting, setAppSetting } from "@/lib/settings";
@@ -302,7 +303,23 @@ export async function mediaCrawlerRequest(path: string, init?: RequestInit) {
 }
 
 const LOGIN_BROWSER_DEBUG_PORT = 9222;
-const LOGIN_BROWSER_PROFILE_DIR = "/Users/m3max/.mediacrawler-chrome";
+const LOGIN_BROWSER_PROFILE_DIR = path.join(os.homedir(), ".mediacrawler-chrome");
+
+function fireAndForget(command: string, args: string[]) {
+  spawn(command, args, {
+    detached: true,
+    stdio: "ignore"
+  }).unref();
+}
+
+function focusLoginBrowserWindow() {
+  if (process.platform === "darwin") {
+    fireAndForget("osascript", ["-e", 'tell application "Google Chrome" to activate']);
+    return;
+  }
+
+  fireAndForget("open", ["-a", "Google Chrome"]);
+}
 
 export async function getLoginBrowserStatus(): Promise<LoginBrowserStatus> {
   try {
@@ -345,31 +362,26 @@ export async function openLoginBrowser() {
   const browserStatus = await getLoginBrowserStatus();
 
   if (browserStatus.healthy) {
+    focusLoginBrowserWindow();
     return browserStatus;
   }
 
-  spawn(
-    "open",
-    [
-      "-na",
-      "Google Chrome",
-      "--args",
-      `--remote-debugging-port=${LOGIN_BROWSER_DEBUG_PORT}`,
-      `--user-data-dir=${LOGIN_BROWSER_PROFILE_DIR}`,
-      "--no-first-run",
-      "about:blank"
-    ],
-    {
-      detached: true,
-      stdio: "ignore"
-    }
-  ).unref();
+  fireAndForget("open", [
+    "-na",
+    "Google Chrome",
+    "--args",
+    `--remote-debugging-port=${LOGIN_BROWSER_DEBUG_PORT}`,
+    `--user-data-dir=${LOGIN_BROWSER_PROFILE_DIR}`,
+    "--no-first-run",
+    "about:blank"
+  ]);
 
   const startedAt = Date.now();
   while (Date.now() - startedAt < 15000) {
     await new Promise((resolve) => setTimeout(resolve, 1000));
     const nextStatus = await getLoginBrowserStatus();
     if (nextStatus.healthy) {
+      focusLoginBrowserWindow();
       return nextStatus;
     }
   }

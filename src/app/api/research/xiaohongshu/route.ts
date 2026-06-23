@@ -131,3 +131,56 @@ export async function POST(request: Request) {
     insight: saved
   });
 }
+
+export async function DELETE(request: Request) {
+  const { searchParams } = new URL(request.url);
+  const collectionId = searchParams.get("collectionId")?.trim();
+
+  if (!collectionId) {
+    return NextResponse.json({ error: "Missing collectionId" }, { status: 400 });
+  }
+
+  const collection = await prisma.researchCollection.findFirst({
+    where: {
+      id: collectionId,
+      platform: ContentPlatform.XIAOHONGSHU
+    },
+    select: {
+      id: true,
+      name: true
+    }
+  });
+
+  if (!collection) {
+    return NextResponse.json({ error: "Research collection not found" }, { status: 404 });
+  }
+
+  const [deletedInsights, deletedJobs] = await prisma.$transaction([
+    prisma.researchInsight.deleteMany({
+      where: {
+        collectionId: collection.id
+      }
+    }),
+    prisma.researchCrawlJob.deleteMany({
+      where: {
+        platform: ContentPlatform.XIAOHONGSHU,
+        collectionName: collection.name
+      }
+    }),
+    prisma.researchCollection.delete({
+      where: {
+        id: collection.id
+      }
+    })
+  ]).then(([insights, jobs]) => [insights, jobs] as const);
+
+  return NextResponse.json({
+    ok: true,
+    deleted: {
+      collectionId: collection.id,
+      collectionName: collection.name,
+      insights: deletedInsights.count,
+      crawlJobs: deletedJobs.count
+    }
+  });
+}

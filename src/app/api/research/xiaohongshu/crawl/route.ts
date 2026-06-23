@@ -262,3 +262,39 @@ export async function POST(request: Request) {
     job
   });
 }
+
+export async function DELETE(request: Request) {
+  const { searchParams } = new URL(request.url);
+  const jobId = searchParams.get("jobId")?.trim();
+
+  if (!jobId) {
+    return NextResponse.json({ error: "Missing jobId" }, { status: 400 });
+  }
+
+  const job = await prisma.researchCrawlJob.findFirst({
+    where: {
+      id: jobId,
+      platform: ContentPlatform.XIAOHONGSHU
+    },
+    select: {
+      id: true
+    }
+  });
+
+  if (!job) {
+    return NextResponse.json({ error: "Crawl job not found" }, { status: 404 });
+  }
+
+  await prisma.researchCrawlJob.delete({
+    where: {
+      id: job.id
+    }
+  });
+
+  return NextResponse.json({
+    ok: true,
+    deleted: {
+      jobId: job.id
+    }
+  });
+}

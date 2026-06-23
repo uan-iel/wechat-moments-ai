@@ -16,6 +16,7 @@ import {
   Search,
   Settings2,
   Sparkles,
+  Trash2,
   Wand2,
   XCircle
 } from "lucide-react";
@@ -168,7 +169,10 @@ export function XiaohongshuResearchPanel() {
   const [savingWorker, setSavingWorker] = useState(false);
   const [startingWorker, setStartingWorker] = useState(false);
   const [openingBrowser, setOpeningBrowser] = useState(false);
+  const [checkingBrowser, setCheckingBrowser] = useState(false);
   const [crawling, setCrawling] = useState(false);
+  const [deletingCollectionId, setDeletingCollectionId] = useState<string | null>(null);
+  const [deletingJobId, setDeletingJobId] = useState<string | null>(null);
   const [message, setMessage] = useState("");
 
   async function loadCollections() {
@@ -374,12 +378,41 @@ export function XiaohongshuResearchPanel() {
         setLoginBrowserStatus(payload.status);
       }
 
-      setMessage("专用登录浏览器已打开。请在该窗口里登录小红书，登录后不要关闭窗口。");
+      setMessage("专用登录浏览器已打开并已尝试切到前台。请直接在那个窗口里登录小红书，登录后不要关闭窗口。");
       await loadWorker();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "打开登录浏览器失败");
     } finally {
       setOpeningBrowser(false);
+    }
+  }
+
+  async function checkBrowserStatusManually() {
+    setCheckingBrowser(true);
+    setMessage("");
+
+    try {
+      const response = await fetch("/api/research/xiaohongshu/browser", {
+        cache: "no-store"
+      });
+      const payload = (await response.json().catch(() => ({}))) as {
+        status?: LoginBrowserStatus;
+      };
+
+      if (payload.status) {
+        setLoginBrowserStatus(payload.status);
+      }
+
+      setMessage(
+        payload.status?.healthy
+          ? "已检测到登录浏览器和有效调试端口，可以直接去那个浏览器窗口里继续操作。"
+          : "暂时没有检测到登录浏览器。点“打开登录浏览器”后，系统会自动帮你打开并切到前台。"
+      );
+      await loadWorker();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "检查浏览器状态失败");
+    } finally {
+      setCheckingBrowser(false);
     }
   }
 
@@ -422,6 +455,68 @@ export function XiaohongshuResearchPanel() {
       setMessage(error instanceof Error ? error.message : "启动抓取失败");
     } finally {
       setCrawling(false);
+    }
+  }
+
+  async function deleteCollection(collection: ResearchCollection) {
+    const confirmed = window.confirm(`确认删除研究集合“${collection.name}”吗？这会同时删除它的样本、洞察和关联任务记录。`);
+    if (!confirmed) {
+      return;
+    }
+
+    setDeletingCollectionId(collection.id);
+    setMessage("");
+
+    try {
+      const response = await fetch(`/api/research/xiaohongshu?collectionId=${encodeURIComponent(collection.id)}`, {
+        method: "DELETE"
+      });
+      const payload = (await response.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+      };
+
+      if (!response.ok || !payload.ok) {
+        throw new Error(payload.error || "删除研究集合失败");
+      }
+
+      setMessage(`已删除研究集合：${collection.name}`);
+      await Promise.all([loadCollections(), loadWorker()]);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "删除研究集合失败");
+    } finally {
+      setDeletingCollectionId(null);
+    }
+  }
+
+  async function deleteCrawlJob(job: CrawlJob) {
+    const confirmed = window.confirm(`确认删除任务记录“${job.collectionName}”吗？这只会删除任务记录本身。`);
+    if (!confirmed) {
+      return;
+    }
+
+    setDeletingJobId(job.id);
+    setMessage("");
+
+    try {
+      const response = await fetch(`/api/research/xiaohongshu/crawl?jobId=${encodeURIComponent(job.id)}`, {
+        method: "DELETE"
+      });
+      const payload = (await response.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+      };
+
+      if (!response.ok || !payload.ok) {
+        throw new Error(payload.error || "删除抓取任务失败");
+      }
+
+      setMessage(`已删除任务记录：${job.collectionName}`);
+      await loadWorker();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "删除抓取任务失败");
+    } finally {
+      setDeletingJobId(null);
     }
   }
 
@@ -677,10 +772,10 @@ export function XiaohongshuResearchPanel() {
               <div className="mt-3 flex flex-wrap gap-2">
                 <Button variant="outline" onClick={() => void openBrowserForLogin()} disabled={openingBrowser}>
                   {openingBrowser ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <LogIn className="size-4" aria-hidden="true" />}
-                  打开登录浏览器
+                  打开并聚焦登录浏览器
                 </Button>
-                <Button variant="ghost" onClick={() => void loadWorker()}>
-                  <RefreshCw className="size-4" aria-hidden="true" />
+                <Button variant="ghost" onClick={() => void checkBrowserStatusManually()} disabled={checkingBrowser}>
+                  {checkingBrowser ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <RefreshCw className="size-4" aria-hidden="true" />}
                   检查状态
                 </Button>
               </div>
@@ -800,14 +895,29 @@ export function XiaohongshuResearchPanel() {
             ) : (
               crawlJobs.map((job) => (
                 <div key={job.id} className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-700">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <div className="font-medium text-slate-950">{job.collectionName}</div>
-                    <span className="rounded-full bg-white px-2.5 py-1 text-xs text-slate-600 ring-1 ring-slate-200">
-                      {String(job.crawlerType).toLowerCase() === "creator" ? "creator" : "search"}
-                    </span>
-                    <span className={`rounded-full px-2.5 py-1 text-xs ring-1 ${statusMeta(job.status).className}`}>
-                      {statusMeta(job.status).label}
-                    </span>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <div className="font-medium text-slate-950">{job.collectionName}</div>
+                      <span className="rounded-full bg-white px-2.5 py-1 text-xs text-slate-600 ring-1 ring-slate-200">
+                        {String(job.crawlerType).toLowerCase() === "creator" ? "creator" : "search"}
+                      </span>
+                      <span className={`rounded-full px-2.5 py-1 text-xs ring-1 ${statusMeta(job.status).className}`}>
+                        {statusMeta(job.status).label}
+                      </span>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={() => void deleteCrawlJob(job)}
+                      disabled={deletingJobId === job.id}
+                      aria-label={`删除任务 ${job.collectionName}`}
+                    >
+                      {deletingJobId === job.id ? (
+                        <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+                      ) : (
+                        <Trash2 className="size-4" aria-hidden="true" />
+                      )}
+                    </Button>
                   </div>
                   <p className="mt-2">查询：{job.query || job.creatorIds.join("、") || "无"}</p>
                   <p>导入条数：{job.notesImported ?? "-"}</p>
@@ -832,7 +942,7 @@ export function XiaohongshuResearchPanel() {
               AI 会优先总结高互动内容的切入角度、结构节奏、情绪路径和互动方法。
             </div>
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-              这些结论只会注入小红书生成模块，不会混进朋友圈生成。
+              如果某次抓取结果不符合预期，你现在可以直接在页面里删除集合和任务记录，数据库也会同步清理。
             </div>
           </CardContent>
         </Card>
@@ -891,23 +1001,38 @@ export function XiaohongshuResearchPanel() {
                         }
                         placeholder="如：新品场景 / 人群需求 / 观点表达"
                       />
-                      <Button
-                        onClick={() => void analyzeCollection(collection)}
-                        disabled={analyzingId === collection.id}
-                        className="w-full"
-                      >
-                        {analyzingId === collection.id ? (
-                          <>
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        <Button
+                          onClick={() => void analyzeCollection(collection)}
+                          disabled={analyzingId === collection.id}
+                          className="w-full"
+                        >
+                          {analyzingId === collection.id ? (
+                            <>
+                              <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+                              正在生成洞察
+                            </>
+                          ) : (
+                            <>
+                              <Wand2 className="size-4" aria-hidden="true" />
+                              生成洞察
+                            </>
+                          )}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          onClick={() => void deleteCollection(collection)}
+                          disabled={deletingCollectionId === collection.id}
+                          className="w-full"
+                        >
+                          {deletingCollectionId === collection.id ? (
                             <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-                            正在生成洞察
-                          </>
-                        ) : (
-                          <>
-                            <Wand2 className="size-4" aria-hidden="true" />
-                            生成洞察
-                          </>
-                        )}
-                      </Button>
+                          ) : (
+                            <Trash2 className="size-4" aria-hidden="true" />
+                          )}
+                          删除结果
+                        </Button>
+                      </div>
                     </div>
                   </div>
 
