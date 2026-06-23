@@ -222,7 +222,11 @@ export async function installMediaCrawlerWorker() {
     throw new Error("MediaCrawler 正在安装中，请稍后刷新状态。");
   }
 
-  const targetPath = path.resolve(process.cwd(), ".crawler/MediaCrawler");
+  const config = await getMediaCrawlerConfig();
+  const targetPath =
+    config.path && existsSync(config.path)
+      ? config.path
+      : path.resolve(process.cwd(), ".crawler/MediaCrawler");
   current.installing = true;
   current.lastError = null;
 
