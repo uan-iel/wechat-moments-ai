@@ -208,7 +208,7 @@ npm run worker:xhs:install
 
 ## Notes
 
-- 升级前已有数据会归入默认 `默认项目` 项目
+- 升级前已有数据会归入默认项目
 - `.local-memory/` 已加入 `.gitignore`，请把投喂文案和可打包导出的本地记忆放在这里
 - 使用 `npm run memory:import` 从 `.local-memory/reference-memory.json` 导入本地记忆
 - 使用 `npm run memory:project:import` 从 `.local-memory/project-memory.json` 导入项目级写作记忆
