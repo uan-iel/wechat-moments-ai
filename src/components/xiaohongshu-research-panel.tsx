@@ -21,6 +21,7 @@ import {
   XCircle
 } from "lucide-react";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -191,6 +192,39 @@ function totalInteractions(note: ResearchNote) {
   return metric(note.likeCount) + metric(note.commentCount) + metric(note.collectCount) + metric(note.shareCount);
 }
 
+function keywordOptions(notes: ResearchNote[]) {
+  const counts = new Map<string, number>();
+
+  for (const note of notes) {
+    for (const keyword of note.keywords) {
+      counts.set(keyword, (counts.get(keyword) ?? 0) + 1);
+    }
+  }
+
+  return Array.from(counts.entries())
+    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0], "zh-CN"))
+    .slice(0, 24)
+    .map(([keyword, count]) => ({ keyword, count }));
+}
+
+function filterNotes(notes: ResearchNote[], search: string, activeKeywords: string[]) {
+  const normalizedSearch = search.trim().toLowerCase();
+
+  return notes.filter((note) => {
+    const matchesSearch =
+      !normalizedSearch ||
+      [note.title, note.authorName, note.keywords.join(" ")]
+        .filter(Boolean)
+        .join("\n")
+        .toLowerCase()
+        .includes(normalizedSearch);
+    const matchesKeywords =
+      activeKeywords.length === 0 || activeKeywords.some((keyword) => note.keywords.includes(keyword));
+
+    return matchesSearch && matchesKeywords;
+  });
+}
+
 function SampleMetrics({ note }: { note: ResearchNote }) {
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-slate-500">
@@ -336,7 +370,11 @@ export function XiaohongshuResearchPanel() {
   const [crawling, setCrawling] = useState(false);
   const [deletingCollectionId, setDeletingCollectionId] = useState<string | null>(null);
   const [deletingJobId, setDeletingJobId] = useState<string | null>(null);
+  const [deletingNotesCollectionId, setDeletingNotesCollectionId] = useState<string | null>(null);
   const [expandedCollectionId, setExpandedCollectionId] = useState<string | null>(null);
+  const [noteSearchByCollection, setNoteSearchByCollection] = useState<Record<string, string>>({});
+  const [selectedKeywordsByCollection, setSelectedKeywordsByCollection] = useState<Record<string, string[]>>({});
+  const [selectedNoteIdsByCollection, setSelectedNoteIdsByCollection] = useState<Record<string, string[]>>({});
   const [message, setMessage] = useState("");
 
   async function loadCollections() {
@@ -614,6 +652,15 @@ export function XiaohongshuResearchPanel() {
     setMessage("");
 
     try {
+      const browserResponse = await fetch("/api/research/xiaohongshu/browser", { cache: "no-store" });
+      const browserPayload = (await browserResponse.json().catch(() => ({}))) as {
+        status?: LoginBrowserStatus;
+      };
+
+      if (!browserPayload.status?.healthy && !cookies.trim()) {
+        throw new Error("先打开并登录登录浏览器，或者填写 Cookies 临时会话，再开始抓取。");
+      }
+
       const response = await fetch("/api/research/xiaohongshu/crawl", {
         method: "POST",
         headers: {
@@ -715,6 +762,103 @@ export function XiaohongshuResearchPanel() {
       setMessage(error instanceof Error ? error.message : "删除抓取任务失败");
     } finally {
       setDeletingJobId(null);
+    }
+  }
+
+  function toggleKeyword(collectionId: string, keyword: string) {
+    setSelectedKeywordsByCollection((current) => {
+      const existing = current[collectionId] ?? [];
+      const next = existing.includes(keyword)
+        ? existing.filter((item) => item !== keyword)
+        : [...existing, keyword];
+
+      return {
+        ...current,
+        [collectionId]: next
+      };
+    });
+  }
+
+  function toggleNoteSelection(collectionId: string, noteId: string) {
+    setSelectedNoteIdsByCollection((current) => {
+      const existing = current[collectionId] ?? [];
+      const next = existing.includes(noteId)
+        ? existing.filter((item) => item !== noteId)
+        : [...existing, noteId];
+
+      return {
+        ...current,
+        [collectionId]: next
+      };
+    });
+  }
+
+  function setFilteredNoteSelection(collectionId: string, noteIds: string[], selected: boolean) {
+    setSelectedNoteIdsByCollection((current) => {
+      const existing = current[collectionId] ?? [];
+      const next = selected
+        ? Array.from(new Set([...existing, ...noteIds]))
+        : existing.filter((id) => !noteIds.includes(id));
+
+      return {
+        ...current,
+        [collectionId]: next
+      };
+    });
+  }
+
+  async function deleteSelectedNotes(collection: ResearchCollection, noteIds: string[]) {
+    if (noteIds.length === 0) {
+      setMessage("先勾选你不想保留的帖子，再执行删除。");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `确认从“${collection.name}”里删除这 ${noteIds.length} 条帖子吗？当前洞察会一并清空，删除后需要重新生成。`
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setDeletingNotesCollectionId(collection.id);
+    setMessage("");
+
+    try {
+      const response = await fetch("/api/research/xiaohongshu", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          collectionId: collection.id,
+          noteIds
+        })
+      });
+      const payload = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        curated?: {
+          deletedNotes: number;
+          deletedInsights: number;
+          remainingNotes: number;
+        };
+      };
+
+      if (!response.ok || !payload.curated) {
+        throw new Error(payload.error || "删除帖子失败");
+      }
+
+      setSelectedNoteIdsByCollection((current) => ({
+        ...current,
+        [collection.id]: []
+      }));
+      setMessage(
+        `已删除 ${payload.curated.deletedNotes} 条帖子，清空了 ${payload.curated.deletedInsights} 条旧洞察。当前还剩 ${payload.curated.remainingNotes} 条样本。`
+      );
+      await loadCollections();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "删除帖子失败");
+    } finally {
+      setDeletingNotesCollectionId(null);
     }
   }
 
@@ -965,8 +1109,8 @@ export function XiaohongshuResearchPanel() {
               <div className="font-medium text-slate-950">登录浏览器</div>
               <p className="mt-2">
                 {loginBrowserStatus?.healthy
-                  ? `已连接专用登录浏览器，调试端口 ${loginBrowserStatus.debugPort}。`
-                  : "如果登录态过期，先点下面这个按钮打开专用登录浏览器，然后在里面登录小红书。"}
+                  ? `已连接专用登录浏览器，调试端口 ${loginBrowserStatus.debugPort}。请在这个窗口里确认你已经登录小红书。`
+                  : "先点下面这个按钮打开专用登录浏览器，再在那个窗口里登录小红书；只有这个会话可被抓取器复用。"}
               </p>
               {loginBrowserStatus?.browserVersion ? (
                 <p className="mt-1 text-slate-600">{loginBrowserStatus.browserVersion}</p>
@@ -1141,6 +1285,16 @@ export function XiaohongshuResearchPanel() {
           {!loading &&
             collections.map((collection) => {
               const collectionInsight = collection.insights[0];
+              const activeKeywords = selectedKeywordsByCollection[collection.id] ?? [];
+              const filteredNotes = filterNotes(
+                collection.notes,
+                noteSearchByCollection[collection.id] ?? "",
+                activeKeywords
+              );
+              const selectedNoteIds = selectedNoteIdsByCollection[collection.id] ?? [];
+              const filteredNoteIds = filteredNotes.map((note) => note.id);
+              const allFilteredSelected =
+                filteredNoteIds.length > 0 && filteredNoteIds.every((noteId) => selectedNoteIds.includes(noteId));
 
               return (
                 <div key={collection.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -1233,13 +1387,154 @@ export function XiaohongshuResearchPanel() {
                     <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                       <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-900">
                         <Database className="size-4" aria-hidden="true" />
-                        样本抓取总结
+                        样本筛选与清洗
                       </div>
-                      <SampleSummary
-                        collection={collection}
-                        expanded={expandedCollectionId === collection.id}
-                        onToggle={() => setExpandedCollectionId(expandedCollectionId === collection.id ? null : collection.id)}
-                      />
+                      <div className="space-y-3">
+                        <Input
+                          value={noteSearchByCollection[collection.id] ?? ""}
+                          onChange={(event) =>
+                            setNoteSearchByCollection((current) => ({
+                              ...current,
+                              [collection.id]: event.target.value
+                            }))
+                          }
+                          placeholder="按标题、作者或关键词筛选样本"
+                        />
+                        {keywordOptions(collection.notes).length > 0 ? (
+                          <div className="flex flex-wrap gap-2">
+                            {keywordOptions(collection.notes).map(({ keyword, count }) => (
+                              <button
+                                key={keyword}
+                                type="button"
+                                onClick={() => toggleKeyword(collection.id, keyword)}
+                                className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs transition-colors ${
+                                  activeKeywords.includes(keyword)
+                                    ? "border-rose-200 bg-rose-50 text-rose-700"
+                                    : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                                }`}
+                              >
+                                {keyword}
+                                <Badge variant="outline" className="h-4 min-w-4 rounded-full px-1 text-[10px]">
+                                  {count}
+                                </Badge>
+                              </button>
+                            ))}
+                          </div>
+                        ) : null}
+                        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
+                          <span>
+                            当前筛出 {filteredNotes.length} 条，已勾选 {selectedNoteIds.length} 条
+                          </span>
+                          <div className="flex flex-wrap gap-2">
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              onClick={() =>
+                                setFilteredNoteSelection(collection.id, filteredNoteIds, !allFilteredSelected)
+                              }
+                              disabled={filteredNotes.length === 0}
+                            >
+                              {allFilteredSelected ? "取消勾选筛选结果" : "勾选筛选结果"}
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="destructive"
+                              onClick={() => void deleteSelectedNotes(collection, selectedNoteIds)}
+                              disabled={
+                                selectedNoteIds.length === 0 || deletingNotesCollectionId === collection.id
+                              }
+                            >
+                              {deletingNotesCollectionId === collection.id ? (
+                                <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+                              ) : (
+                                <Trash2 className="size-4" aria-hidden="true" />
+                              )}
+                              删除勾选帖子
+                            </Button>
+                          </div>
+                        </div>
+                        {filteredNotes.length === 0 ? (
+                          <div className="rounded-lg border border-dashed border-slate-300 bg-white px-4 py-6 text-sm text-slate-600">
+                            当前筛选条件下没有样本。
+                          </div>
+                        ) : (
+                          <div className="max-h-[560px] space-y-2 overflow-auto rounded-lg border border-slate-200 bg-white p-2">
+                            {filteredNotes.map((note, index) => {
+                              const checked = selectedNoteIds.includes(note.id);
+
+                              return (
+                                <label
+                                  key={note.id}
+                                  className={`block rounded-lg border p-3 transition-colors ${
+                                    checked ? "border-rose-200 bg-rose-50/70" : "border-slate-100 bg-slate-50"
+                                  }`}
+                                >
+                                  <div className="flex items-start gap-3">
+                                    <input
+                                      type="checkbox"
+                                      checked={checked}
+                                      onChange={() => toggleNoteSelection(collection.id, note.id)}
+                                      className="mt-1 size-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500"
+                                    />
+                                    <div className="min-w-0 flex-1">
+                                      <div className="flex flex-wrap items-start justify-between gap-3">
+                                        <div className="min-w-0">
+                                          <div className="flex items-center gap-2">
+                                            <span className="rounded-full bg-white px-2 py-0.5 text-xs font-semibold text-slate-500">
+                                              #{index + 1}
+                                            </span>
+                                            <span className="text-sm font-semibold text-slate-950">
+                                              {note.title || "未命名笔记"}
+                                            </span>
+                                          </div>
+                                          <div className="mt-1 text-xs text-slate-500">
+                                            {note.authorName || "未知作者"} · {formatDate(note.publishedAt)}
+                                          </div>
+                                        </div>
+                                        {note.noteUrl ? (
+                                          <a
+                                            href={note.noteUrl}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className="inline-flex shrink-0 items-center gap-1 rounded-full bg-white px-3 py-1.5 text-xs font-medium text-rose-600 ring-1 ring-rose-100 hover:bg-rose-50 hover:text-rose-700"
+                                          >
+                                            查看全文
+                                            <ExternalLink className="size-3" aria-hidden="true" />
+                                          </a>
+                                        ) : null}
+                                      </div>
+                                      <div className="mt-3">
+                                        <SampleMetrics note={note} />
+                                      </div>
+                                      {note.keywords.length > 0 ? (
+                                        <div className="mt-3 flex flex-wrap gap-1.5">
+                                          {note.keywords.slice(0, 8).map((keyword) => (
+                                            <span
+                                              key={keyword}
+                                              className="rounded-full bg-white px-2 py-1 text-xs text-slate-500 ring-1 ring-slate-100"
+                                            >
+                                              {keyword}
+                                            </span>
+                                          ))}
+                                        </div>
+                                      ) : null}
+                                    </div>
+                                  </div>
+                                </label>
+                              );
+                            })}
+                          </div>
+                        )}
+                        <SampleSummary
+                          collection={collection}
+                          expanded={expandedCollectionId === collection.id}
+                          onToggle={() =>
+                            setExpandedCollectionId(expandedCollectionId === collection.id ? null : collection.id)
+                          }
+                        />
+                      </div>
                     </div>
                   </div>
                 </div>

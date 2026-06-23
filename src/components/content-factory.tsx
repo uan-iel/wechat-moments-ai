@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, Plus, Sparkles, X } from "lucide-react";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -41,6 +42,17 @@ type ContentFormat = {
   products: Product[];
 };
 
+type AppliedResearchInsight = {
+  id: string;
+  title: string;
+  scopeKey: string | null;
+  summary: string;
+  recommendations: string | null;
+  topKeywords: string[];
+  updatedAt: string;
+  overlap: number;
+};
+
 const wordCountOptions = ["50-150", "150-250", "250-350", "350-450"] as const;
 const defaultStyleTags = ["活泼", "简约", "网感", "温柔"];
 
@@ -57,6 +69,8 @@ export function ContentFactory() {
   const [selectedStyleTags, setSelectedStyleTags] = useState<string[]>(["简约"]);
   const [customStyleTag, setCustomStyleTag] = useState("");
   const [busy, setBusy] = useState(false);
+  const [researchPreviewLoading, setResearchPreviewLoading] = useState(false);
+  const [appliedResearchInsights, setAppliedResearchInsights] = useState<AppliedResearchInsight[]>([]);
   const [message, setMessage] = useState("");
 
   const selectedFormat = useMemo(
@@ -86,6 +100,56 @@ export function ContentFactory() {
   useEffect(() => {
     void loadFormats();
   }, [loadFormats]);
+
+  useEffect(() => {
+    if (platform !== "XIAOHONGSHU" || !selectedFormatId || !selectedProductId) {
+      setAppliedResearchInsights([]);
+      return;
+    }
+
+    let cancelled = false;
+    setResearchPreviewLoading(true);
+
+    void fetch("/api/research/xiaohongshu/preview", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        platform,
+        campaignGoal,
+        contentFormatId: selectedFormatId,
+        productId: selectedProductId
+      })
+    })
+      .then(async (response) => {
+        const payload = (await response.json().catch(() => ({}))) as {
+          insights?: AppliedResearchInsight[];
+        };
+
+        if (!response.ok) {
+          throw new Error("读取研究预览失败");
+        }
+
+        if (!cancelled) {
+          setAppliedResearchInsights(payload.insights || []);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setAppliedResearchInsights([]);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setResearchPreviewLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [campaignGoal, platform, selectedFormatId, selectedProductId]);
 
   function toggleStyleTag(tag: string) {
     setSelectedStyleTags((current) =>
@@ -351,6 +415,50 @@ export function ContentFactory() {
                     );
                   })}
                 </div>
+              </div>
+            ) : null}
+
+            {platform === "XIAOHONGSHU" ? (
+              <div className="space-y-3 rounded-xl border border-rose-100 bg-rose-50/50 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <Label>本次会参考的小红书研究</Label>
+                    <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                      这里显示本次生成前，系统实际命中的研究洞察。样本清洗后重新生成洞察，这里会同步变化。
+                    </p>
+                  </div>
+                  {researchPreviewLoading ? <Loader2 className="size-4 animate-spin text-slate-500" aria-hidden="true" /> : null}
+                </div>
+                {appliedResearchInsights.length === 0 ? (
+                  <div className="rounded-lg border border-dashed border-rose-200 bg-white px-4 py-4 text-sm text-slate-600">
+                    当前还没有命中直接相关的小红书研究洞察，生成时会更多依赖产品信息、图片分析和底层文案记忆。
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {appliedResearchInsights.map((insight) => (
+                      <div key={insight.id} className="rounded-lg border border-rose-100 bg-white p-3">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="text-sm font-semibold text-slate-950">{insight.title}</p>
+                          <Badge variant="outline">命中 {insight.overlap}</Badge>
+                          {insight.scopeKey ? <Badge variant="outline">{insight.scopeKey}</Badge> : null}
+                        </div>
+                        <p className="mt-2 text-sm leading-6 text-slate-700">{insight.summary}</p>
+                        {insight.topKeywords.length > 0 ? (
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {insight.topKeywords.slice(0, 6).map((keyword) => (
+                              <span
+                                key={`${insight.id}-${keyword}`}
+                                className="rounded-full bg-rose-50 px-2.5 py-1 text-xs text-rose-700"
+                              >
+                                {keyword}
+                              </span>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             ) : null}
 

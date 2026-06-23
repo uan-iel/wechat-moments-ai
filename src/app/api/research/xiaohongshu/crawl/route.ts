@@ -7,7 +7,11 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { prisma } from "@/lib/prisma";
-import { mediaCrawlerRequest, startMediaCrawlerWorker } from "@/lib/research/media-crawler";
+import {
+  getLoginBrowserStatus,
+  mediaCrawlerRequest,
+  startMediaCrawlerWorker
+} from "@/lib/research/media-crawler";
 import { importXiaohongshuResearchPayload } from "@/lib/research/xiaohongshu-import";
 import { analyzeXiaohongshuResearch } from "@/lib/research/xiaohongshu-research";
 import { getActiveProjectFromRequest } from "@/lib/projects";
@@ -51,7 +55,52 @@ function chooseImportFile(
   const threshold = startedAt.getTime() - 15 * 1000;
   const startedAfterFiles = sorted.filter((file) => Number(file.modified_at) >= threshold);
 
-  return startedAfterFiles[0] || sorted[0];
+  return startedAfterFiles[0] || null;
+}
+
+type MediaCrawlerLogEntry = {
+  id?: number;
+  timestamp?: string;
+  level?: string;
+  message?: string;
+};
+
+async function fetchRecentCrawlerLogs() {
+  const payload = (await mediaCrawlerRequest("/api/crawler/logs?limit=200")) as {
+    logs?: MediaCrawlerLogEntry[];
+  };
+
+  return payload.logs || [];
+}
+
+function inferCrawlerFailureReason(logs: MediaCrawlerLogEntry[]) {
+  const messages = logs.map((log) => log.message || "").filter(Boolean);
+  const joined = messages.join("\n");
+
+  if (/没有权限访问/.test(joined)) {
+    return "本次抓取被小红书拦截：当前登录账号没有权限访问该搜索结果。请切换账号、重新登录，或稍后再试。";
+  }
+
+  if (/Login state result:\s*False/i.test(joined) || /Begin login xiaohongshu/i.test(joined)) {
+    return "本次抓取没有使用到有效的小红书登录态。请先在登录浏览器里重新登录小红书，再发起抓取。";
+  }
+
+  if (/RetryError|DataFetchError|Traceback/i.test(joined)) {
+    const lastMeaningfulError = [...messages]
+      .reverse()
+      .find((message) => /error|exception|failed|RetryError|DataFetchError|权限|登录/i.test(message));
+
+    if (lastMeaningfulError) {
+      return `抓取器执行失败：${lastMeaningfulError}`;
+    }
+  }
+
+  return null;
+}
+
+async function resolveCrawlerFailureReason(fallbackMessage: string) {
+  const logs = await fetchRecentCrawlerLogs().catch(() => []);
+  return inferCrawlerFailureReason(logs) || fallbackMessage;
 }
 
 async function importLatestMediaCrawlerResult(jobId: string, autoAnalyze: boolean) {
@@ -76,7 +125,9 @@ async function importLatestMediaCrawlerResult(jobId: string, autoAnalyze: boolea
   const latest = chooseImportFile(filesPayload.files || [], job.startedAt);
 
   if (!latest) {
-    throw new Error("抓取结束了，但没有找到可导入的小红书 JSON 结果文件。");
+    throw new Error(
+      await resolveCrawlerFailureReason("抓取结束了，但本次没有产出新的小红书结果文件。请检查登录状态或稍后重试。")
+    );
   }
 
   const rawText = (await mediaCrawlerRequest(
@@ -90,6 +141,11 @@ async function importLatestMediaCrawlerResult(jobId: string, autoAnalyze: boolea
     sourceQuery: job.query,
     description: `Imported from MediaCrawler: ${latest.name}`,
     sourceType: "media-crawler-api"
+  }).catch(async (error) => {
+    const message =
+      error instanceof Error ? error.message : "小红书结果导入失败，请稍后重试。";
+
+    throw new Error(await resolveCrawlerFailureReason(message));
   });
 
   await prisma.researchCrawlJob.update({
@@ -177,7 +233,9 @@ async function monitorCrawlJob(jobId: string, autoAnalyze: boolean) {
       };
 
       if (statusPayload.status === "error") {
-        throw new Error(statusPayload.error_message || "MediaCrawler reported an error.");
+        throw new Error(
+          await resolveCrawlerFailureReason(statusPayload.error_message || "MediaCrawler reported an error.")
+        );
       }
 
       if (statusPayload.status === "idle") {
@@ -238,6 +296,19 @@ export async function POST(request: Request) {
 
   if (parsed.data.crawlerType === "creator" && parsed.data.creatorIds.length === 0) {
     return NextResponse.json({ error: "Creator 模式需要至少 1 个 creator id。" }, { status: 400 });
+  }
+
+  const browserStatus = await getLoginBrowserStatus();
+  const hasCookieFallback = Boolean(parsed.data.cookies?.trim());
+
+  if (!browserStatus.healthy && !hasCookieFallback) {
+    return NextResponse.json(
+      {
+        error:
+          "还没有检测到可用的小红书登录浏览器。请先点击“打开并聚焦登录浏览器”，在那个窗口里登录小红书，或改用 Cookies 临时会话后再抓取。"
+      },
+      { status: 400 }
+    );
   }
 
   await startMediaCrawlerWorker();

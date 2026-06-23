@@ -2,6 +2,13 @@
 
 本地 AI 内容工作台，支持 `朋友圈` 和 `小红书` 两个平台的本地文案记忆读取、文案生成、多版本定稿与手工发布记录。
 
+## 快速阅读
+
+- 作业叙事版过程说明：
+  [docs/项目研发故事-作业版.md](/Users/m3max/Selena's app/Wechat Moments AI/docs/项目研发故事-作业版.md)
+- 给后续 agent / 开发者的系统接力手册：
+  [docs/Agent-Handoff-系统接力手册.md](/Users/m3max/Selena's app/Wechat Moments AI/docs/Agent-Handoff-系统接力手册.md)
+
 ## 现在能做什么
 
 - 进入工作台后先选择一个品牌项目；默认项目为 `默认项目`

@@ -4,7 +4,7 @@ import { z } from "zod";
 
 import { analyzeProductImage } from "@/lib/ai/image-analyzer";
 import { generateMomentContent } from "@/lib/ai/content-generator";
-import { buildResearchMemory } from "@/lib/ai/research-memory";
+import { resolveResearchMemory } from "@/lib/ai/research-memory";
 import { prisma } from "@/lib/prisma";
 import { normalizePlatform } from "@/lib/platforms";
 import { getActiveProjectFromRequest } from "@/lib/projects";
@@ -93,9 +93,9 @@ export async function POST(request: Request) {
         });
       })
     );
-    const researchMemory =
+    const researchResolution =
       normalizePlatform(parsed.data.platform) === "XIAOHONGSHU"
-        ? await buildResearchMemory({
+        ? await resolveResearchMemory({
             platform: parsed.data.platform,
             projectId: project.id,
             campaignGoal: parsed.data.campaignGoal,
@@ -103,7 +103,10 @@ export async function POST(request: Request) {
             productName: product.name,
             productKeywords: product.sellingPoints
           })
-        : "无需加载研究洞察：这部分研究记忆只提供给小红书生成模块，朋友圈模块禁止读取。";
+        : {
+            text: "无需加载研究洞察：这部分研究记忆只提供给小红书生成模块，朋友圈模块禁止读取。",
+            insights: []
+          };
     const { generatedContent, relevantAssets } = await generateMomentContent({
       campaignGoal: parsed.data.campaignGoal,
       platform: parsed.data.platform,
@@ -113,7 +116,7 @@ export async function POST(request: Request) {
         `写作要求：${product.contentFormat.writingGuide || "无"}`
       ].join("\n"),
       productInfo: formatProductInfo(product),
-      researchMemory,
+      researchMemory: researchResolution.text,
       referenceStyleId: parsed.data.referenceStyleId,
       wordCountRange: parsed.data.wordCountRange,
       styleTags: parsed.data.styleTags.map((tag) => tag.trim()).filter(Boolean),
@@ -191,7 +194,8 @@ export async function POST(request: Request) {
       contentTask,
       contentVersion,
       generatedContent,
-      retrievedAssets: relevantAssets
+      retrievedAssets: relevantAssets,
+      appliedResearchInsights: researchResolution.insights
     });
   } catch (error) {
     return NextResponse.json(

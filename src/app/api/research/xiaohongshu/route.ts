@@ -14,6 +14,11 @@ const analyzeSchema = z.object({
   scopeKey: z.string().min(1).optional()
 });
 
+const curateNotesSchema = z.object({
+  collectionId: z.string().min(1),
+  noteIds: z.array(z.string().min(1)).min(1)
+});
+
 function metric(value: number | null | undefined) {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
@@ -224,6 +229,65 @@ export async function DELETE(request: Request) {
       collectionName: collection.name,
       insights: deletedInsights.count,
       crawlJobs: deletedJobs.count
+    }
+  });
+}
+
+export async function PATCH(request: Request) {
+  const body = await request.json().catch(() => ({}));
+  const parsed = curateNotesSchema.safeParse(body);
+  const project = await getActiveProjectFromRequest(request);
+
+  if (!parsed.success) {
+    return NextResponse.json({ error: "Invalid note curation payload" }, { status: 400 });
+  }
+
+  const collection = await prisma.researchCollection.findFirst({
+    where: {
+      id: parsed.data.collectionId,
+      projectId: project.id,
+      platform: ContentPlatform.XIAOHONGSHU
+    },
+    select: {
+      id: true,
+      name: true
+    }
+  });
+
+  if (!collection) {
+    return NextResponse.json({ error: "Research collection not found" }, { status: 404 });
+  }
+
+  const [deletedInsights, deletedNotes, remainingNotes] = await prisma.$transaction([
+    prisma.researchInsight.deleteMany({
+      where: {
+        projectId: project.id,
+        collectionId: collection.id
+      }
+    }),
+    prisma.researchNote.deleteMany({
+      where: {
+        collectionId: collection.id,
+        id: {
+          in: parsed.data.noteIds
+        }
+      }
+    }),
+    prisma.researchNote.count({
+      where: {
+        collectionId: collection.id
+      }
+    })
+  ]);
+
+  return NextResponse.json({
+    ok: true,
+    curated: {
+      collectionId: collection.id,
+      collectionName: collection.name,
+      deletedNotes: deletedNotes.count,
+      deletedInsights: deletedInsights.count,
+      remainingNotes
     }
   });
 }

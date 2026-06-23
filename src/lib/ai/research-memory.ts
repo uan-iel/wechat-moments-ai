@@ -45,16 +45,32 @@ function overlapScore(referenceTokens: string[], candidateText: string) {
   return referenceTokens.reduce((score, token) => score + (candidate.includes(token) ? 1 : 0), 0);
 }
 
-export async function buildResearchMemory(input: {
+type ResearchMemoryInput = {
   platform?: "MOMENTS" | "XIAOHONGSHU";
   projectId?: string;
   contentFormatName?: string;
   productName?: string;
   productKeywords?: string[];
   campaignGoal?: string;
-}) {
+};
+
+export type AppliedResearchInsight = {
+  id: string;
+  title: string;
+  scopeKey: string | null;
+  summary: string;
+  recommendations: string | null;
+  topKeywords: string[];
+  updatedAt: string;
+  overlap: number;
+};
+
+export async function resolveResearchMemory(input: ResearchMemoryInput) {
   if (normalizePlatform(input.platform) !== "XIAOHONGSHU") {
-    return "无需加载研究洞察：这部分研究记忆只提供给小红书生成模块，朋友圈模块禁止读取。";
+    return {
+      text: "无需加载研究洞察：这部分研究记忆只提供给小红书生成模块，朋友圈模块禁止读取。",
+      insights: [] as AppliedResearchInsight[]
+    };
   }
 
   const platform = ContentPlatform.XIAOHONGSHU;
@@ -70,7 +86,10 @@ export async function buildResearchMemory(input: {
   });
 
   if (candidateInsights.length === 0) {
-    return "暂无小红书研究洞察，优先依赖本地文案记忆与产品信息。";
+    return {
+      text: "暂无小红书研究洞察，优先依赖本地文案记忆与产品信息。",
+      insights: [] as AppliedResearchInsight[]
+    };
   }
 
   const referenceTokens = tokenize(
@@ -98,15 +117,18 @@ export async function buildResearchMemory(input: {
     })
     .filter((item) => (referenceTokens.length > 0 ? item.overlap > 0 : false))
     .sort((left, right) => right.score - left.score)
-    .slice(0, 3)
-    .map(({ insight }) => insight);
+    .slice(0, 3);
 
   if (ranked.length === 0) {
-    return "当前没有和本次主题直接相关的小红书研究洞察，优先依赖当前产品、图片特征和平台底层文风记忆生成。";
+    return {
+      text: "当前没有和本次主题直接相关的小红书研究洞察，优先依赖当前产品、图片特征和平台底层文风记忆生成。",
+      insights: [] as AppliedResearchInsight[]
+    };
   }
 
-  return ranked
-    .map((insight, index) =>
+  return {
+    text: ranked
+      .map(({ insight }, index) =>
       [
         `研究洞察 ${index + 1}：${insight.title}`,
         `- 适用关键词：${insight.topKeywords.join("、") || insight.scopeKey || "泛平台"}`,
@@ -116,5 +138,22 @@ export async function buildResearchMemory(input: {
         .filter(Boolean)
         .join("\n")
     )
-    .join("\n\n");
+      .join("\n\n"),
+    insights: ranked.map(({ insight, overlap }) => ({
+      id: insight.id,
+      title: insight.title,
+      scopeKey: insight.scopeKey,
+      summary: insight.summary,
+      recommendations: insight.recommendations,
+      topKeywords: insight.topKeywords,
+      updatedAt: insight.updatedAt.toISOString(),
+      overlap
+    }))
+  };
+}
+
+export async function buildResearchMemory(input: ResearchMemoryInput) {
+  const resolved = await resolveResearchMemory(input);
+
+  return resolved.text;
 }
