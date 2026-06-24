@@ -73,6 +73,10 @@ type CrawlJob = {
   notesImported: number | null;
   sourceFilePath: string | null;
   errorMessage: string | null;
+  analysisPending?: boolean;
+  progressPercent?: number | null;
+  progressLabel?: string | null;
+  progressDetail?: string | null;
   createdAt: string;
 };
 
@@ -137,6 +141,21 @@ function statusMeta(status: string) {
         label: status || "未知",
         className: "bg-slate-100 text-slate-700 ring-slate-200"
       };
+  }
+}
+
+function progressBarTone(status: string) {
+  switch (normalizeStatus(status)) {
+    case "completed":
+      return "bg-emerald-500";
+    case "importing":
+      return "bg-sky-500";
+    case "running":
+      return "bg-amber-500";
+    case "failed":
+      return "bg-rose-500";
+    default:
+      return "bg-slate-400";
   }
 }
 
@@ -377,18 +396,23 @@ export function XiaohongshuResearchPanel() {
   const [selectedNoteIdsByCollection, setSelectedNoteIdsByCollection] = useState<Record<string, string[]>>({});
   const [message, setMessage] = useState("");
 
-  async function loadCollections() {
-    setLoading(true);
+  async function loadCollections(options?: { silent?: boolean }) {
+    if (!options?.silent) {
+      setLoading(true);
+    }
+
     try {
       const response = await fetch("/api/research/xiaohongshu", { cache: "no-store" });
       const payload = (await response.json()) as ResearchPayload;
       setCollections(payload.collections || []);
     } finally {
-      setLoading(false);
+      if (!options?.silent) {
+        setLoading(false);
+      }
     }
   }
 
-  async function loadWorker() {
+  async function loadWorker(options?: { syncConfig?: boolean; quiet?: boolean }) {
     try {
       const [workerResponse, crawlResponse, browserResponse] = await Promise.all([
         fetch("/api/research/xiaohongshu/worker", { cache: "no-store" }),
@@ -412,7 +436,7 @@ export function XiaohongshuResearchPanel() {
         throw new Error(workerPayload.error || "读取 worker 状态失败");
       }
 
-      if (workerPayload.config) {
+      if (workerPayload.config && options?.syncConfig !== false) {
         setConfig(workerPayload.config);
       }
       if (workerPayload.status) {
@@ -423,22 +447,15 @@ export function XiaohongshuResearchPanel() {
       }
       setCrawlJobs(crawlPayload.jobs || []);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "读取 worker 状态失败");
+      if (!options?.quiet) {
+        setMessage(error instanceof Error ? error.message : "读取 worker 状态失败");
+      }
     }
   }
 
   useEffect(() => {
     void loadCollections();
     void loadWorker();
-  }, []);
-
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      void loadWorker();
-      void loadCollections();
-    }, 6000);
-
-    return () => window.clearInterval(timer);
   }, []);
 
   const totalNotes = useMemo(
@@ -454,10 +471,24 @@ export function XiaohongshuResearchPanel() {
       }),
     [crawlJobs]
   );
+  const hasActiveCrawl = Boolean(runningJob);
 
   const latestJob = crawlJobs[0] ?? null;
   const latestCollection = collections[0] ?? null;
   const latestInsight = latestCollection?.insights[0] ?? null;
+  const latestJobCollection = latestJob
+    ? collections.find((collection) => collection.name === latestJob.collectionName) ?? null
+    : null;
+
+  useEffect(() => {
+    const intervalMs = hasActiveCrawl ? 2000 : 6000;
+    const timer = window.setInterval(() => {
+      void loadWorker({ syncConfig: false, quiet: true });
+      void loadCollections({ silent: true });
+    }, intervalMs);
+
+    return () => window.clearInterval(timer);
+  }, [hasActiveCrawl]);
 
   const flowSteps = useMemo(() => {
     const jobStatus = normalizeStatus(latestJob?.status);
@@ -678,9 +709,9 @@ export function XiaohongshuResearchPanel() {
                   .filter(Boolean)
               : [],
           cookies: cookies.trim(),
-          maxNotesCount: 40,
+          maxNotesCount: 50,
           enableComments: false,
-          autoAnalyze: true
+          autoAnalyze: false
         })
       });
       const payload = (await response.json().catch(() => ({}))) as { error?: string };
@@ -689,7 +720,7 @@ export function XiaohongshuResearchPanel() {
         throw new Error(payload.error || "启动抓取失败");
       }
 
-      setMessage("抓取任务已启动。抓完后会自动入库，并自动生成小红书洞察。");
+      setMessage("抓取任务已启动。抓完后会自动入库；洞察改为手动生成，这样返回会更快。");
       await loadWorker();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "启动抓取失败");
@@ -971,7 +1002,45 @@ export function XiaohongshuResearchPanel() {
                 <p className="mt-2">
                   {latestJob.query || latestJob.creatorIds.join("、") || "无查询条件"}
                 </p>
+                {typeof latestJob.progressPercent === "number" ? (
+                  <div className="mt-3 space-y-2">
+                    <div className="flex items-center justify-between text-xs text-slate-500">
+                      <span>{latestJob.progressLabel || "抓取进度"}</span>
+                      <span>{latestJob.progressPercent}%</span>
+                    </div>
+                    <div className="h-2 overflow-hidden rounded-full bg-slate-200">
+                      <div
+                        className={`h-full rounded-full transition-all ${progressBarTone(latestJob.status)}`}
+                        style={{ width: `${latestJob.progressPercent}%` }}
+                      />
+                    </div>
+                    <p className="min-h-4 text-xs text-slate-500">{latestJob.progressDetail || ""}</p>
+                  </div>
+                ) : null}
                 {latestJob.notesImported ? <p>已导入 {latestJob.notesImported} 条样本。</p> : null}
+                {latestJob.analysisPending && latestJobCollection ? (
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <span className="text-slate-600">样本已经入库，下一步需要手动生成洞察。</span>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => void analyzeCollection(latestJobCollection)}
+                      disabled={analyzingId === latestJobCollection.id}
+                    >
+                      {analyzingId === latestJobCollection.id ? (
+                        <>
+                          <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+                          生成中
+                        </>
+                      ) : (
+                        <>
+                          <Wand2 className="size-4" aria-hidden="true" />
+                          生成洞察
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                ) : null}
                 {latestJob.errorMessage ? <p className="text-rose-600">{latestJob.errorMessage}</p> : null}
               </div>
             ) : null}
@@ -1163,7 +1232,28 @@ export function XiaohongshuResearchPanel() {
           <CardContent className="space-y-3">
             {!latestInsight ? (
               <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-sm text-slate-600">
-                还没有生成分析结果。导入样本后点“生成洞察”即可。
+                <p>还没有生成分析结果。抓取现在会先完成样本入库，再由你手动触发洞察生成。</p>
+                {latestCollection ? (
+                  <Button
+                    className="mt-3"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void analyzeCollection(latestCollection)}
+                    disabled={analyzingId === latestCollection.id}
+                  >
+                    {analyzingId === latestCollection.id ? (
+                      <>
+                        <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+                        正在生成洞察
+                      </>
+                    ) : (
+                      <>
+                        <Wand2 className="size-4" aria-hidden="true" />
+                        立即生成洞察
+                      </>
+                    )}
+                  </Button>
+                ) : null}
               </div>
             ) : (
               <>
@@ -1235,7 +1325,23 @@ export function XiaohongshuResearchPanel() {
                     </Button>
                   </div>
                   <p className="mt-2">查询：{job.query || job.creatorIds.join("、") || "无"}</p>
+                  {typeof job.progressPercent === "number" ? (
+                    <div className="mt-3 space-y-2">
+                      <div className="flex items-center justify-between text-xs text-slate-500">
+                        <span>{job.progressLabel || "抓取进度"}</span>
+                        <span>{job.progressPercent}%</span>
+                      </div>
+                      <div className="h-2 overflow-hidden rounded-full bg-white ring-1 ring-slate-200">
+                        <div
+                          className={`h-full rounded-full transition-all ${progressBarTone(job.status)}`}
+                          style={{ width: `${job.progressPercent}%` }}
+                        />
+                      </div>
+                      <p className="min-h-4 text-xs text-slate-500">{job.progressDetail || ""}</p>
+                    </div>
+                  ) : null}
                   <p>导入条数：{job.notesImported ?? "-"}</p>
+                  {job.analysisPending ? <p className="text-slate-600">样本已入库，洞察还没生成。</p> : null}
                   {job.sourceFilePath ? <p>结果文件：{job.sourceFilePath}</p> : null}
                   {job.errorMessage ? <p className="text-rose-600">{job.errorMessage}</p> : null}
                 </div>
@@ -1269,7 +1375,7 @@ export function XiaohongshuResearchPanel() {
           <CardDescription>每个集合都可以手动重新分析，并直接看到代表性样本。</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {loading ? (
+          {loading && collections.length === 0 ? (
             <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-8 text-sm text-slate-600">
               <Loader2 className="size-4 animate-spin" aria-hidden="true" />
               正在读取小红书研究集合...

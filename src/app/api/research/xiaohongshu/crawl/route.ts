@@ -25,9 +25,9 @@ const crawlSchema = z.object({
   creatorIds: z.array(z.string().min(1)).default([]),
   cookies: z.string().optional(),
   startPage: z.number().int().min(1).default(1),
-  maxNotesCount: z.number().int().min(1).max(500).default(40),
+  maxNotesCount: z.number().int().min(1).max(500).default(50),
   enableComments: z.boolean().default(false),
-  autoAnalyze: z.boolean().default(true)
+  autoAnalyze: z.boolean().default(false)
 });
 
 function globalMonitorState() {
@@ -46,16 +46,28 @@ function chooseImportFile(
   files: Array<{ path: string; modified_at: number | string; name: string }>,
   startedAt?: Date | null
 ) {
-  const sorted = [...files].sort((left, right) => Number(right.modified_at) - Number(left.modified_at));
+  const sorted = [...files].sort(
+    (left, right) => fileModifiedAtMs(right.modified_at) - fileModifiedAtMs(left.modified_at)
+  );
 
   if (!startedAt) {
     return sorted[0];
   }
 
   const threshold = startedAt.getTime() - 15 * 1000;
-  const startedAfterFiles = sorted.filter((file) => Number(file.modified_at) >= threshold);
+  const startedAfterFiles = sorted.filter((file) => fileModifiedAtMs(file.modified_at) >= threshold);
 
   return startedAfterFiles[0] || null;
+}
+
+function fileModifiedAtMs(value: number | string) {
+  const numericValue = Number(value);
+
+  if (!Number.isFinite(numericValue)) {
+    return 0;
+  }
+
+  return numericValue < 10_000_000_000 ? numericValue * 1000 : numericValue;
 }
 
 type MediaCrawlerLogEntry = {
@@ -66,11 +78,139 @@ type MediaCrawlerLogEntry = {
 };
 
 async function fetchRecentCrawlerLogs() {
-  const payload = (await mediaCrawlerRequest("/api/crawler/logs?limit=200")) as {
+  const payload = (await mediaCrawlerRequest("/api/crawler/logs?limit=400")) as {
     logs?: MediaCrawlerLogEntry[];
   };
 
   return payload.logs || [];
+}
+
+function findJobStartLogIndex(logs: MediaCrawlerLogEntry[], job: {
+  query: string | null;
+  creatorIds: string[];
+  crawlerType: ResearchCrawlerType;
+}) {
+  const jobNeedle =
+    job.crawlerType === ResearchCrawlerType.CREATOR
+      ? job.creatorIds.join(",").trim()
+      : (job.query || "").trim();
+
+  for (let index = logs.length - 1; index >= 0; index -= 1) {
+    const message = logs[index]?.message || "";
+
+    if (!message.includes("Starting crawler:")) {
+      continue;
+    }
+
+    if (!jobNeedle || message.includes(jobNeedle)) {
+      return index;
+    }
+  }
+
+  return -1;
+}
+
+function countFetchedNotes(message: string) {
+  const singleQuoteMatches = message.match(/'model_type': 'note'/g);
+  if (singleQuoteMatches?.length) {
+    return singleQuoteMatches.length;
+  }
+
+  const doubleQuoteMatches = message.match(/"model_type"\s*:\s*"note"/g);
+  return doubleQuoteMatches?.length || 0;
+}
+
+function extractTargetNoteCount(logs: MediaCrawlerLogEntry[], fallback = 50) {
+  for (let index = logs.length - 1; index >= 0; index -= 1) {
+    const message = logs[index]?.message || "";
+    const match = message.match(/--crawler_max_notes_count\s+(\d+)/);
+
+    if (match) {
+      return Number(match[1]);
+    }
+  }
+
+  return fallback;
+}
+
+function extractCurrentPage(logs: MediaCrawlerLogEntry[]) {
+  for (let index = logs.length - 1; index >= 0; index -= 1) {
+    const message = logs[index]?.message || "";
+    const match = message.match(/page:\s*(\d+)/i);
+
+    if (match) {
+      return Number(match[1]);
+    }
+  }
+
+  return null;
+}
+
+function inferJobProgress(job: {
+  query: string | null;
+  creatorIds: string[];
+  crawlerType: ResearchCrawlerType;
+  status: ResearchCrawlStatus;
+  notesImported: number | null;
+  errorMessage: string | null;
+}, logs: MediaCrawlerLogEntry[]) {
+  if (job.status === ResearchCrawlStatus.FAILED) {
+    return {
+      progressPercent: null,
+      progressLabel: "任务失败",
+      progressDetail: job.errorMessage || "抓取失败"
+    };
+  }
+
+  if (job.status === ResearchCrawlStatus.PENDING) {
+    return {
+      progressPercent: 0,
+      progressLabel: "等待启动",
+      progressDetail: "任务已创建，等待 crawler 开始执行。"
+    };
+  }
+
+  if (job.status === ResearchCrawlStatus.IMPORTING) {
+    return {
+      progressPercent: 100,
+      progressLabel: "抓取完成，正在入库",
+      progressDetail: "样本已经抓完，正在写入本地研究库。"
+    };
+  }
+
+  if (job.status === ResearchCrawlStatus.COMPLETED) {
+    return {
+      progressPercent: 100,
+      progressLabel: "抓取与入库完成",
+      progressDetail: job.notesImported
+        ? `已入库 ${job.notesImported} 条样本。`
+        : "样本已入库完成。"
+    };
+  }
+
+  const target = extractTargetNoteCount(logs, 50);
+  const fetched = logs.reduce((sum, log) => {
+    const message = log.message || "";
+
+    if (!message.includes("Search notes response:")) {
+      return sum;
+    }
+
+    return sum + countFetchedNotes(message);
+  }, 0);
+  const currentPage = extractCurrentPage(logs);
+  const effectiveFetched = Math.min(fetched, target);
+  const progressPercent = target > 0 ? Math.max(1, Math.min(99, Math.round((effectiveFetched / target) * 100))) : null;
+  const pageText = currentPage ? `，当前到第 ${currentPage} 页` : "";
+
+  return {
+    progressPercent,
+    progressLabel: "正在抓取样本",
+    progressDetail:
+      progressPercent === null
+        ? "抓取任务已启动，正在等待首批样本返回。"
+        : `已抓取约 ${effectiveFetched} / ${target} 条${pageText}。`
+  };
 }
 
 function inferCrawlerFailureReason(logs: MediaCrawlerLogEntry[]) {
@@ -103,6 +243,23 @@ async function resolveCrawlerFailureReason(fallbackMessage: string) {
   return inferCrawlerFailureReason(logs) || fallbackMessage;
 }
 
+async function waitForImportFile(startedAt?: Date | null) {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const filesPayload = (await mediaCrawlerRequest("/api/data/files?platform=xhs&file_type=json")) as {
+      files?: Array<{ path: string; modified_at: number | string; name: string }>;
+    };
+    const latest = chooseImportFile(filesPayload.files || [], startedAt);
+
+    if (latest) {
+      return latest;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+  }
+
+  return null;
+}
+
 async function importLatestMediaCrawlerResult(jobId: string, autoAnalyze: boolean) {
   const job = await prisma.researchCrawlJob.findUnique({
     where: { id: jobId }
@@ -119,10 +276,7 @@ async function importLatestMediaCrawlerResult(jobId: string, autoAnalyze: boolea
     }
   });
 
-  const filesPayload = (await mediaCrawlerRequest("/api/data/files?platform=xhs&file_type=json")) as {
-    files?: Array<{ path: string; modified_at: number | string; name: string }>;
-  };
-  const latest = chooseImportFile(filesPayload.files || [], job.startedAt);
+  const latest = await waitForImportFile(job.startedAt);
 
   if (!latest) {
     throw new Error(
@@ -226,7 +380,7 @@ async function monitorCrawlJob(jobId: string, autoAnalyze: boolean) {
     const startedAt = Date.now();
 
     while (Date.now() - startedAt < 20 * 60 * 1000) {
-      await new Promise((resolve) => setTimeout(resolve, 4000));
+      await new Promise((resolve) => setTimeout(resolve, 2000));
       const statusPayload = (await mediaCrawlerRequest("/api/crawler/status")) as {
         status?: "idle" | "running" | "stopping" | "error";
         error_message?: string | null;
@@ -261,7 +415,7 @@ async function monitorCrawlJob(jobId: string, autoAnalyze: boolean) {
 
 export async function GET(request: Request) {
   const project = await getActiveProjectFromRequest(request);
-  const [status, jobs] = await Promise.all([
+  const [status, jobs, collections, logs] = await Promise.all([
     mediaCrawlerRequest("/api/crawler/status").catch(() => ({ status: "idle" })),
     prisma.researchCrawlJob.findMany({
       where: {
@@ -272,12 +426,45 @@ export async function GET(request: Request) {
         createdAt: "desc"
       },
       take: 12
-    })
+    }),
+    prisma.researchCollection.findMany({
+      where: {
+        projectId: project.id,
+        platform: ContentPlatform.XIAOHONGSHU
+      },
+      select: {
+        name: true,
+        _count: {
+          select: {
+            insights: true
+          }
+        }
+      }
+    }),
+    fetchRecentCrawlerLogs().catch(() => [])
   ]);
+
+  const insightCountByCollection = new Map(collections.map((collection) => [collection.name, collection._count.insights]));
 
   return NextResponse.json({
     workerStatus: status,
-    jobs
+    jobs: jobs.map((job) => {
+      const startIndex =
+        job.status === ResearchCrawlStatus.RUNNING || job.status === ResearchCrawlStatus.IMPORTING
+          ? findJobStartLogIndex(logs, job)
+          : -1;
+      const relevantLogs = startIndex >= 0 ? logs.slice(startIndex) : [];
+      const progress = inferJobProgress(job, relevantLogs);
+      const insightCount = insightCountByCollection.get(job.collectionName) || 0;
+
+      return {
+        ...job,
+        analysisPending: job.status === ResearchCrawlStatus.COMPLETED && insightCount === 0,
+        progressPercent: progress.progressPercent,
+        progressLabel: progress.progressLabel,
+        progressDetail: progress.progressDetail
+      };
+    })
   });
 }
 
